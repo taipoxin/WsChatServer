@@ -1,0 +1,16 @@
+{
+  "name": "websocket-chat",
+  "version": "1.0.0",
+  "description": "A node-js backend for desctop chat-client, use websockets",
+  "author": "Dmitriy Ermakovich <dimontiranid1999@gmail.com>",
+  "dependencies": {
+    "mongodb": "^2.0.45",
+    "ws": "^5.0.0"
+  },
+  "engines": {
+    "node": "4.2.1"
+  },
+  "scripts": {
+    "start": "node app.js"
+  }
+}
