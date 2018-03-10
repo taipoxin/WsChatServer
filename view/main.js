@@ -1,4 +1,6 @@
 ws = new WebSocket ('ws://localhost:9000');
+function $(a){return document.getElementById(a)}
+console.log('inside main')
 
 ws.onmessage = function (message) {
 	// приводим ответ от сервера в пригодный вид 
@@ -38,8 +40,6 @@ ws.onmessage = function (message) {
 }
 
 
-function $(a){return document.getElementById(a)}
-
 
 function specials_in (event) {
 	var message = event.message;
@@ -69,6 +69,7 @@ function specials_out(message) {
 
 // по нажатию Enter в поле ввода пароля  
 $('password').onkeydown = function (e) {
+		console.log('Enter passed');
     if (e.which == 13) {
         // отправляем серверу событие authorize
 		ws.send (JSON.stringify ({
@@ -80,6 +81,7 @@ $('password').onkeydown = function (e) {
 }
 // по нажатию Enter в поле ввода текста
 $('input').onkeydown = function (e) {
+	console.log('Enter passed');
 	// если человек нажал Ctrl+Enter или Shift+Enter, то просто создаем новую строку. 
 	if (e.which == 13 && !e.ctrlKey && !e.shiftKey) {
         // отправляем серверу событие message

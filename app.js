@@ -1,3 +1,52 @@
+/*
+var http = require('http')
+var url = require('url')
+var fs = require('fs')
+
+http.createServer(function (req, res) {
+  res.writeHead(200, {'Content-Type': 'text/html; charset=UTF-8'})
+  //res.write('hehhehgfgfdg ')
+  fs.readFile('view/index.html', 'utf-8', function (err, data) {
+    res.end(data)
+  })
+}).listen(8080)
+*/
+const path = require('path')
+const express = require('express')
+const app = express()
+const cons = require('consolidate')
+
+
+app.use(express.static(path.join(__dirname, '/view')))
+// app.set('views', __dirname + '/../views')
+//app.set('views', path.join(__dirname, '/view'))
+
+
+// Используем движок усов
+app.engine('html', cons.mustache)
+// установить движок рендеринга
+app.set('view engine', 'html')
+
+
+app.get('/' , function(req, res){
+    //res.render('index');
+    res.sendFile(path.join(__dirname, 'view/index.html'));
+});
+
+// Запустим сервер на порту 3000 и сообщим об этом в консоли.
+// Все Worker-ы  должны иметь один и тот же порт
+app.listen(3000, function (err) {
+  if (err) throw err
+    // Если есть ошибка сообщить об этом
+    // Приложение закроется т.к. нет больше handler-ов
+  console.log(`Running server at port 3000!`)
+    // Иначе сообщить что мы успешно соединились с мастером
+    // И ждем сообщений от клиентов
+})
+
+
+
+
 // создаем сервер
 var WebSocketServer = require('ws').Server,
 	wss = new WebSocketServer({port: 9000});
