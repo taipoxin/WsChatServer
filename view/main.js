@@ -1,4 +1,4 @@
-var ws = new WebSocket('ws://localhost:9000')
+var ws = new WebSocket('ws://192.168.137.97:9000')
 function $ (a) { return document.getElementById(a) }
 
 ws.onmessage = function (message) {

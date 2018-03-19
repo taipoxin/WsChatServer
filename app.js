@@ -14,14 +14,14 @@ app.get('/', function (req, res) {
 })
 
 // Запустим сервер на порту 3000 и сообщим об этом в консоли.
-app.listen(3000, function (err) {
+app.listen(3000, '192.168.137.97', function (err) {
   if (err) throw err
   console.log(`Running server at port 3000!`)
 })
 
 // создаем сервер
 var WebSocketServer = require('ws').Server,
-  wss = new WebSocketServer({port: 9000})
+  wss = new WebSocketServer({port: 9000, host: '192.168.137.97'})
 
 // соединение с БД
 var MongoClient = require('mongodb').MongoClient,
@@ -110,6 +110,7 @@ wss.on('connection', function (ws) {
       checkUser(event.user, event.password, function (success) {
 				// чтоб было видно в другой области видимости
         registered = success
+        console.log('success: ' + success)
 
 				// подготовка ответного события
         var returning = {type: 'authorize', success: success}
@@ -139,9 +140,11 @@ wss.on('connection', function (ws) {
         ws.send(JSON.stringify(returning))
 
 				// отправим старые сообщения новому участнику
+				/**/
         if (success) {
           sendNewMessages(ws)
         }
+        /**/
       })
     } else {
 			// если человек не авторизирован, то игнорим его
