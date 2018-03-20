@@ -1,54 +1,33 @@
 const path = require('path')
-const express = require('express')
-const app = express()
-const cons = require('consolidate')
-
 // server config params
 const config = require('./config')
 
-
-
-// UI http part (for tests)
-app.use(express.static(path.join(__dirname, '/view')))
-
-app.engine('html', cons.mustache)
-
-// установить движок рендеринга
-app.set('view engine', 'html')
-
-app.get('/', function (req, res) {
-  res.render('index')
-})
-// Запустим сервер
-app.listen(config.http_port, config.hostname, function (err) {
-  if (err) throw err
-  console.log(`Running server at port ` + config.http_port)
-})
-// end UI http part
-
-
-
-
 // создаем сервер
-var WebSocketServer = require('ws').Server
-var wss = new WebSocketServer({port: config.ws_port, host: config.hostname})
+const WebSocketServer = require('ws').Server
+const wss = new WebSocketServer({port: config.ws_port, host: config.hostname})
 
 // соединение с БД
-var MongoClient = require('mongodb').MongoClient
-var format = require('util').format
+const MongoClient = require('mongodb').MongoClient
 
 // ссылки на коллекции
-var userListDB, chatDB
+
+// registration users data
+// {login, email, password}
+var userListDB
+// contains group messages
+// {message, from, time}
+var chatDB
 
 // подсоединяемся к БД
-MongoClient.connect('mongodb://' +config.hostname + ':' + config.mongod_port, function (err, db) {
+MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, db) {
   if (err) { throw err }
 
   userListDB = db.collection('users')
   chatDB = db.collection('chat')
 })
 
-// список участников чата (их логины)
+// список участников онлайн (их логины)
+// lpeers[i] соответствует peers[i]
 var lpeers = []
 // список участников (ws)
 var peers = []
@@ -59,8 +38,25 @@ function existUser (user, callback) {
     callback(list.length !== 0)
   })
 }
-// эта функция отвечает целиком за всю систему аккаунтов
-function checkUser (user, password, callback) {
+
+function registerUser (user, email, password, callback) {
+	// проверяем, есть ли такой пользователь
+  existUser(user, function (exist) {
+  	if (exist) {
+  		callback(false)
+  	}
+  	// register new user
+  	else {
+  		userListDB.insert({login: user, email: email, password: password}, {w: 1}, function (err) {
+    if (err) { throw err }
+  })
+      // возвращаем успешную регистрацию
+    callback(true)
+  	}
+  })
+}
+
+function checkAuthorize (user, password, callback) {
 	// проверяем, есть ли такой пользователь
   existUser(user, function (exist) {
     if (exist) {
@@ -70,13 +66,8 @@ function checkUser (user, password, callback) {
         callback(list.pop().password === password)
       })
     } else {
-			// если пользователя нет, то регистрируем его
-      userListDB.insert({login: user, password: password}, {w: 1}, function (err) {
-        if (err) { throw err }
-      })
-			// не запрашиваем авторизацию, пускаем сразу
-      callback(true)
-    }
+    	callback(false)
+  	}
   })
 }
 
@@ -86,7 +77,7 @@ function broadcast (by, message) {
   var time = new Date().getTime()
 
 	// отправляем по каждому соединению
-	for (i = 0; i < peers.length; i++) { 
+  for (i = 0; i < peers.length; i++) {
   	if (lpeers[i] != by) {
   		peers[i].send(JSON.stringify({
 	      type: 'message',
@@ -95,7 +86,7 @@ function broadcast (by, message) {
 	      time: time
 	    }))
   	}
-	}
+  }
 
 	// сохраняем сообщение в истории
   chatDB.insert({message: message, from: by, time: time}, {w: 1}, function (err) {
@@ -108,20 +99,33 @@ wss.on('connection', function (ws) {
   console.log('new connection')
 	// проинициализируем переменные
   var login = ''
-  var registered = false
+  var authorized = false
 
 	// при входящем сообщении
   ws.on('message', function (message) {
 		// получаем событие в пригодном виде
     var event = JSON.parse(message)
 
-		// если человек хочет авторизироваться, проверим его данные
-    if (event.type === 'authorize') {
+    // регистрация
+    if (event.type === 'register') {
+    	console.log('register type')
+
+      registerUser(event.user, event.email, event.password, function (success) {
+        console.log('registered new user: ' + success)
+				// подготовка ответного события
+        var returning = {type: 'register', success: success}
+
+        ws.send(JSON.stringify(returning))
+      })
+    }
+
+		// авторизация
+    else if (event.type === 'authorize') {
       console.log('authorize type')
 			// проверяем данные
-      checkUser(event.user, event.password, function (success) {
+      checkAuthorize(event.user, event.password, function (success) {
 				// чтоб было видно в другой области видимости
-        registered = success
+        authorized = success
         console.log('success: ' + success)
 
 				// подготовка ответного события
@@ -160,8 +164,8 @@ wss.on('connection', function (ws) {
       })
     } else {
 			// если человек не авторизирован, то игнорим его
-      if (registered) {
-        console.log('registered')
+      if (authorized) {
+        console.log('authorized')
 				// проверяем тип события
         switch (event.type) {
 					// если просто сообщение

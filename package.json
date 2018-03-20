@@ -4,10 +4,7 @@
   "description": "A node-js backend for desctop chat-client, use websockets",
   "author": "Dmitriy Ermakovich <dimontiranid1999@gmail.com>",
   "dependencies": {
-    "consolidate": "^0.15.0",
-    "express": "^4.16.2",
     "mongodb": "^2.0.45",
-    "mustache": "^2.3.0",
     "ws": "^5.0.0"
   },
   "engines": {
