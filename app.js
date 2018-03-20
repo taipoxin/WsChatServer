@@ -3,43 +3,54 @@ const express = require('express')
 const app = express()
 const cons = require('consolidate')
 
+// server config params
+const config = require('./config')
+
+
+
+// UI http part (for tests)
 app.use(express.static(path.join(__dirname, '/view')))
 
 app.engine('html', cons.mustache)
+
 // установить движок рендеринга
 app.set('view engine', 'html')
 
 app.get('/', function (req, res) {
   res.render('index')
 })
-
-// Запустим сервер на порту 3000 и сообщим об этом в консоли.
-app.listen(3000, '192.168.137.97', function (err) {
+// Запустим сервер
+app.listen(config.http_port, config.hostname, function (err) {
   if (err) throw err
-  console.log(`Running server at port 3000!`)
+  console.log(`Running server at port ` + config.http_port)
 })
+// end UI http part
+
+
+
 
 // создаем сервер
-var WebSocketServer = require('ws').Server,
-  wss = new WebSocketServer({port: 9000, host: '192.168.137.97'})
+var WebSocketServer = require('ws').Server
+var wss = new WebSocketServer({port: config.ws_port, host: config.hostname})
 
 // соединение с БД
-var MongoClient = require('mongodb').MongoClient,
-  format = require('util').format
+var MongoClient = require('mongodb').MongoClient
+var format = require('util').format
 
+// ссылки на коллекции
 var userListDB, chatDB
 
 // подсоединяемся к БД
-MongoClient.connect('mongodb://localhost:27017', function (err, db) {
+MongoClient.connect('mongodb://' +config.hostname + ':' + config.mongod_port, function (err, db) {
   if (err) { throw err }
 
-	// записываем ссылки на таблицы (коллекции) в глобальные переменные
   userListDB = db.collection('users')
   chatDB = db.collection('chat')
 })
 
 // список участников чата (их логины)
 var lpeers = []
+// список участников (ws)
 var peers = []
 
 // проверка пользователя на предмет существования в базе данных
@@ -52,7 +63,6 @@ function existUser (user, callback) {
 function checkUser (user, password, callback) {
 	// проверяем, есть ли такой пользователь
   existUser(user, function (exist) {
-		// если пользователь существует
     if (exist) {
 			// то найдем в БД записи о нем
       userListDB.find({login: user}).toArray(function (error, list) {
@@ -76,14 +86,16 @@ function broadcast (by, message) {
   var time = new Date().getTime()
 
 	// отправляем по каждому соединению
-  peers.forEach(function (ws) {
-    ws.send(JSON.stringify({
-      type: 'message',
-      message: message,
-      from: by,
-      time: time
-    }))
-  })
+	for (i = 0; i < peers.length; i++) { 
+  	if (lpeers[i] != by) {
+  		peers[i].send(JSON.stringify({
+	      type: 'message',
+	      message: message,
+	      from: by,
+	      time: time
+	    }))
+  	}
+	}
 
 	// сохраняем сообщение в истории
   chatDB.insert({message: message, from: by, time: time}, {w: 1}, function (err) {
