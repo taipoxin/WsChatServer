@@ -3,6 +3,10 @@
   "version": "1.0.0",
   "description": "A node-js backend for desctop chat-client, use websockets",
   "author": "Dmitriy Ermakovich <dimontiranid1999@gmail.com>",
+  "devDependencies": {
+    "chai": "3.5.0",
+    "mocha": "3.2.0"
+  },
   "dependencies": {
     "mongodb": "^2.0.45",
     "ws": "^5.0.0"
@@ -11,6 +15,7 @@
     "node": "4.2.1"
   },
   "scripts": {
-    "start": "node app.js"
+    "start": "node app.js",
+    "test": "./node_modules/.bin/mocha --reporter spec --timeout 5000"
   }
 }

@@ -14,17 +14,86 @@ const MongoClient = require('mongodb').MongoClient
 // registration users data
 // {login, email, password}
 var userListDB
+
 // contains group messages
 // {message, from, time}
 var chatDB
+
+// channel list
+// {name, fullname}
+var channelsDB
+
+var dbController
 
 // подсоединяемся к БД
 MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, db) {
   if (err) { throw err }
 
   userListDB = db.collection('users')
+	// pattern for chat
   chatDB = db.collection('chat')
+
+  channelsDB = db.collection('channels')
+
+  dbController = db
 })
+
+function createNewChannel (name, fullname) {
+	// добавляем канал в channels
+
+  channelsDB.insert({name: name, fullname: fullname}, {w: 1}, function (err) {
+    if (err) { throw err }
+  })
+
+	// создаем его личные collections: список пользователей и список сообщений
+	// {login}
+  dbController.createCollection(name + '_users')
+	// {message, from, time}
+  dbController.createCollection(name + '_messages')
+}
+
+/**
+* должен вернуть false, если данная запись не была добавлена
+*/
+async function addUserToChannel (userLogin, channelName) {
+  let res = true
+	// проверить, что если добавляется существующий пользователь
+  let ch = await db.collection('channelName' + '_users')
+  ch.insert({login: userLogin}, {w: 1}, function (err) {
+    if (err) { res = false }
+  })
+  return res
+}
+
+async function addUserToChannelTask (userLogin, channelName) {
+  let result = await addUserToChannel(userLogin, channelName)
+	// отправить сообщение о добавлении нового пользователя всем участникам данного канала
+  sendResponseToOnlineChannelUsers(channelName,
+		{user: userLogin, channel: channelName, type: 'add_user', success: result})
+}
+
+async function addMessageToChannel (mObj, channelName) {
+  let ch = await db.collection(channelName + '_messages')
+  ch.insert({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
+    if (err) { throw err }
+  })
+}
+
+async function addMessageToChannel (mObj) {
+  var channelName = mObj.channel
+  let ch = await db.collection(channelName + '_messages')
+  ch.insert({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
+    if (err) { throw err }
+  })
+}
+
+function showCollections () {
+  dbController.collections(function (err, items) {
+    console.log(items)
+  })
+
+	// console.log(dbController)
+}
 
 // список участников онлайн (их логины)
 // lpeers[i] соответствует peers[i]
@@ -71,6 +140,7 @@ function checkAuthorize (user, password, callback) {
   })
 }
 
+/*
 // функция отправки сообщения всем
 function broadcast (by, message) {
 	// запишем в переменную, чтоб не расходилось время
@@ -87,11 +157,50 @@ function broadcast (by, message) {
 	    }))
   	}
   }
-
 	// сохраняем сообщение в истории
   chatDB.insert({message: message, from: by, time: time}, {w: 1}, function (err) {
     if (err) { throw err }
   })
+}
+*/
+
+async function sendResponseToOnlineChannelUsers (channelName, json) {
+  var ch = await dbController.connection(channelName + '_users')
+	 ch.find().toArray(function (error, list) {
+   list.forEach(function (entry) {
+     var i = lpeers.indexOf(entry)
+      // отправляем всем, кто онлайн
+     peers[i].send(json)
+   })
+ })
+}
+
+async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, from) {
+	 var ch = await dbController.connection(channelName + '_users')
+	 ch.find().toArray(function (error, list) {
+   list.forEach(function (entry) {
+     var i = lpeers.indexOf(entry)
+      // отправляем всем, кто онлайн, кроме отправителя
+     if (i != -1 && entry != from) {
+      	peers[i].send(json)
+     }
+   })
+ })
+}
+
+// функция отправки сообщения всем онлайн участникам нужного канала
+function broadcastMessage (event) {
+  let js = JSON.stringify({
+    type: 'message',
+    message: event.message,
+    from: event.from,
+    time: event.time,
+    channel: event.channel
+  })
+
+  sendResponseToOnlineChannelUsersExceptFrom(event.channel, js, event.from)
+	// сохраняем сообщение в истории
+  addMessageToChannel(event)
 }
 
 // при новом соединении
@@ -156,26 +265,30 @@ wss.on('connection', function (ws) {
         ws.send(JSON.stringify(returning))
 
 				// отправим старые сообщения новому участнику
-				/**/
+				/*
         if (success) {
           sendNewMessages(ws)
         }
-        /**/
+        */
       })
     } else {
-			// если человек не авторизирован, то игнорим его
       if (authorized) {
         console.log('authorized')
-				// проверяем тип события
+
         switch (event.type) {
 					// если просто сообщение
           case 'message':
+          	// {from, message, channel, time, type}
 						// рассылаем его всем
-            broadcast(login, event.message)
+            // broadcast(login, event.message)
+            broadcastMessage(event)
             break
-					// если сообщение о том, что он печатает сообщение
-          case 'type':
-						// то пока я не решил, что делать в таких ситуациях
+          case 'add_user':
+          	// {user, channel, type}
+          	// приходит сообщение с пользователем,
+          	// которого нужно добавить в определенный канал
+          	// а также отправить ответ о добавлении
+
             break
         }
       }
@@ -183,7 +296,20 @@ wss.on('connection', function (ws) {
   })
 })
 
-// функция отправки старых сообщений новому участнику чата
+// функция отправки старых сообщений только что зашедшему участнику канала
+async function sendOldMessages (ws, channelName) {
+  var ch = await dbController.connection(channelName + '_messages')
+  ch.find().toArray(function (error, messages) {
+    if (error) { throw error }
+    messages.forEach(function (message) {
+      message.type = 'message'
+      ws.send(JSON.stringify(message))
+    })
+  })
+}
+
+/*
+// функция отправки старых сообщений только что зашедшему участнику чата
 function sendNewMessages (ws) {
   chatDB.find().toArray(function (error, entries) {
     if (error) { throw error }
@@ -193,8 +319,24 @@ function sendNewMessages (ws) {
     })
   })
 }
+*/
 
 // убрать из массива элемент по его значению
 Array.prototype.exterminate = function (value) {
   this.splice(this.indexOf(value), 1)
 }
+
+const readline = require('readline')
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+})
+
+rl.question('', (answer) => {
+	// console.log(`Thank you for your valuable feedback: ${answer}`);
+
+	// createNewChannel('chichichiii')
+	// showCollections()
+  rl.close()
+})
