@@ -20,7 +20,7 @@ var chatDB
 // {name, fullname}
 var channelsDB
 // db object
-var dbController
+var db
 // список участников онлайн (их логины)
 // lpeers[i] соответствует peers[i]
 var lpeers = []
@@ -28,15 +28,15 @@ var lpeers = []
 var peers = []
 
 // подсоединяемся к БД
-MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, db) {
+MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, dbController) {
   if (err) { throw err }
-  userListDB = db.collection('users')
+  userListDB = dbController.collection('users')
 	// pattern for chat
-  chatDB = db.collection('chat')
+  chatDB = dbController.collection('chat')
 
-  channelsDB = db.collection('channels')
+  channelsDB = dbController.collection('channels')
 
-  dbController = db
+  db = dbController
 })
 
 /**
@@ -57,13 +57,13 @@ async function createNewChannel (name, fullname, senderLogin) {
   if (!res) return false
 	// создаем его личные collections: список пользователей и список сообщений
 	// {login, type}
-  var users = dbController.collection(name + '_users')
+  var users = db.collection(name + '_users')
   // добавляем сразу же отправителя в качестве администратора
   users.insert({login: senderLogin, type: 'admin'}, {w: 1}, function (err) {
     if (err) { throw err }
   })
 	// {message, from, time}
-  dbController.createCollection(name + '_messages')
+  db.createCollection(name + '_messages')
   return true
 }
 
@@ -89,12 +89,14 @@ async function createNewChannelTask (event) {
 */
 async function addUserToChannel (userLogin, channelName) {
   let res = true
-  let ch = await dbController.collection('channelName' + '_users')
-
+  let ch = await db.collection(channelName + '_users')
+  console.log('userLogin: ' + userLogin)
 	// проверить, что если добавляется существующий пользователь
   var list = await ch.find({login: userLogin}).toArray()
-
-  if (list.length !== 0) return false
+  if (list.length !== 0) { 
+    console.log('user exists')
+    return false 
+  }
   await ch.insert({login: userLogin}, {w: 1}, function (err) {
     if (err) { res = false }
   })
@@ -105,41 +107,40 @@ async function addUserToChannel (userLogin, channelName) {
 async function addUserToChannelTask (event) {
   let userLogin = event.user
   let channelName = event.channel
-  let result = await addUserToChannel()
+  let result = await addUserToChannel(userLogin, channelName)
 	// отправить сообщение о добавлении нового пользователя всем участникам данного канала
   console.log('send response adding user ' + result)
-  /*
-  sendResponseToSender(userLogin,
-    {user: userLogin, channel: channelName,
-      type: 'add_user', success: result})
-*/
-  /**/
+
   sendResponseToOnlineChannelUsers(channelName,
 		{user: userLogin, channel: channelName, type: 'add_user', success: result})
-/**/
 }
 
-async function addMessageToChannel (mObj, channelName) {
-  let ch = await db.collection(channelName + '_messages')
-  ch.insert({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
-    if (err) { throw err }
-  })
-}
 
 async function addMessageToChannel (mObj) {
-  var channelName = mObj.channel
-  let ch = await db.collection(channelName + '_messages')
+  let ch = await db.collection(mObj.channel + '_messages')
+  console.log(mObj)
   ch.insert({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
     if (err) { throw err }
   })
 }
 
+// {message, from, time, channel, type: 'message'}
+function addMessageToChannelTask (event) {
+  addMessageToChannel(event)
+  // отправить новое сообщение всем участникам данного канала
+  console.log('send response message')
+  sendResponseToOnlineChannelUsersExceptFrom(event.channel,
+    {message: event.message, from: event.from, channel: event.channel, time: event.time, type: 'message'},
+    event.from)
+}
+
+
 function showCollections () {
-  dbController.collections(function (err, items) {
+  db.collections(function (err, items) {
     console.log(items)
   })
 
-	// console.log(dbController)
+	// console.log(db)
 }
 
 // проверка пользователя на предмет существования в базе данных
@@ -195,14 +196,13 @@ function sendResponseToSender (sender, json) {
 }
 
 async function sendResponseToOnlineChannelUsers (channelName, json) {
-  var ch = await dbController.collection(channelName + '_users')
+  var ch = await db.collection(channelName + '_users')
   ch.find().toArray(function (error, list) {
     list.forEach(function (entry) {
       var i = lpeers.indexOf(entry.login)
       // отправляем всем, кто онлайн
       if (i != -1) {
         console.log(entry.login)
-        console.log(json)
         peers[i].send(JSON.stringify(json))
       }
     })
@@ -210,35 +210,22 @@ async function sendResponseToOnlineChannelUsers (channelName, json) {
 }
 
 async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, from) {
-	 var ch = await dbController.collection(channelName + '_users')
-	 ch.find().toArray(function (error, list) {
-   list.forEach(function (entry) {
-     var i = lpeers.indexOf(entry)
+	var ch = await db.collection(channelName + '_users')
+	ch.find().toArray(function (error, list) {
+    list.forEach(function (entry) {
+      var i = lpeers.indexOf(entry.login)
       // отправляем всем, кто онлайн, кроме отправителя
-     if (i != -1 && entry != from) {
-      	peers[i].send(JSON.stringify(json))
-     }
-   })
+      if (i != -1 && entry.login != from) {
+        peers[i].send(JSON.stringify(json))
+      }
+    })
  })
 }
 
-// функция отправки сообщения всем онлайн участникам нужного канала
-function broadcastMessage (event) {
-  let js = JSON.stringify({
-    type: 'message',
-    message: event.message,
-    from: event.from,
-    time: event.time,
-    channel: event.channel
-  })
-
-  sendResponseToOnlineChannelUsersExceptFrom(event.channel, js, event.from)
-	// сохраняем сообщение в истории
-  addMessageToChannel(event)
-}
 
 // при новом соединении
 wss.on('connection', function (ws) {
+  console.log('---------------')
   console.log('new connection')
 	// проинициализируем переменные
   var login = ''
@@ -290,6 +277,7 @@ wss.on('connection', function (ws) {
 
 					//  если человек вышел
           ws.on('close', function () {
+            console.log('closed for ' + login)
             peers.exterminate(ws)
             lpeers.exterminate(login)
           })
@@ -313,9 +301,9 @@ wss.on('connection', function (ws) {
 					// если просто сообщение
           case 'message':
           	// {from, message, channel, time, type}
-						// рассылаем его всем
+						// рассылаем его всем в данном канале
             // broadcast(login, event.message)
-            broadcastMessage(event)
+            addMessageToChannelTask(event)
             break
           case 'add_user':
           	// {user, channel, type}
@@ -335,7 +323,7 @@ wss.on('connection', function (ws) {
 
 // функция отправки старых сообщений только что зашедшему участнику канала
 async function sendOldMessages (ws, channelName) {
-  var ch = await dbController.connection(channelName + '_messages')
+  var ch = await db.connection(channelName + '_messages')
   ch.find().toArray(function (error, messages) {
     if (error) { throw error }
     messages.forEach(function (message) {

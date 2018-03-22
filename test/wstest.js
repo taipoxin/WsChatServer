@@ -15,15 +15,19 @@ function logTest () {
 logTest()
 
 describe('ws tests', () => {
+  
+
   before(() => {
   })
 
   function onOpen (client, req) {
+    let timeout_t = 10
+    let times = 100
     var i = 0;
     // sync loop for 5 tries to send request to ws
     (function loop () {
-      if (i == 10) { return }
-      if (i++ > 5) {
+      if (i == times + 10) { return }
+      if (i++ > times) {
         console.log('sending failed')
         return
       };
@@ -32,41 +36,46 @@ describe('ws tests', () => {
         if (client.readyState == 1) {
           console.log('sending')
           client.send(JSON.stringify(req))
-          i = 10
+          i = times + 10
         }
         loop()
-      }, 100)
+      }, timeout_t)
     })()
   }
 
-  function createPatternConnection (done, onMessage, on_Open) {
+  function createPatternConnection (done, onMessage, on_Open, clientName) {
+    let name = clientName
+    if (clientName == undefined) {
+      name = 'client0'
+    }
+
     let ws_source = 'ws://' + config.hostname + ':' + config.ws_port
     let client = new WebSocket(ws_source)
 
     client.onclose = (e) => { console.log('connection closed') }
     client.onerror = (e) => { console.log('connection aborted') }
-    client.onopen = on_Open(client, done)
+    client.onopen = on_Open(client, done, name)
 
     client.on('message', (message) => {
-      onMessage(done, message, client)
+      onMessage(done, message, client, name)
     })
     return client
   }
 
-  function onOpenAuth (client, done) {
+  function onOpenAuth (client, done, name) {
     let auth = {
-      user: 'client0',
+      user: name,
       password: '12345',
       type: 'authorize'
     }
     onOpen(client, auth)
   }
 
-  // registration {user, email, password, type: 'register'}
 
+  // registration {user, email, password, type: 'register'}
   it('check register', (done) => {
-    function onOpenReg (client, done) {
-      let reg = {user: 'client0',
+    function onOpenReg (client, done, name) {
+      let reg = {user: name,
         email: '-',
         password: '12345',
         type: 'register'
@@ -74,7 +83,7 @@ describe('ws tests', () => {
       onOpen(client, reg)
     }
 
-    function onMessageRegister (done, message, client) {
+    function onMessageRegister (done, message, client, name) {
       let success = {type: 'register', success: true}
       let notsuccess = {type: 'register', success: false}
 
@@ -95,18 +104,18 @@ describe('ws tests', () => {
       }
       onMessage(message, client, success, notsuccess)
     }
-    createPatternConnection(done, onMessageRegister, onOpenReg)
+    createPatternConnection(done, onMessageRegister, onOpenReg, 'client1')
   })
 
   it('check auth', (done) => {
-    function onMessageAuth (done, message, client) {
+    function onMessageAuth (done, message, client, name) {
       function onMessage (message, client) {
         var event = JSON.parse(message)
         if (event.type == 'authorize') {
           if (event.success) {
-            console.log('client0 successfully authorized')
+            console.log(name + ' successfully authorized')
           } else {
-            console.log('client0 auth failed')
+            console.log(name + ' auth failed')
           }
           client.close()
           done()
@@ -117,26 +126,25 @@ describe('ws tests', () => {
     createPatternConnection(done, onMessageAuth, onOpenAuth)
   })
 
-  /*
-  req: {name, fullname, admin, type: 'new_channel'}
-  resp: {name, fullname, admin, success, type: 'new_channel'}
-  */
+  
+  // req: {name, fullname, admin, type: 'new_channel'}
+  // resp: {name, fullname, admin, success, type: 'new_channel'}
   it('new_channel', (done) => {
-    function onMessageCreateChannel (done, message, client) {
+    function onMessageCreateChannel (done, message, client, name) {
       let new_ch = {
         name: 'nice_channel1',
         fullname: 'channel for nice people',
-        admin: 'client0',
+        admin: name,
         type: 'new_channel'
       }
       function onMessage (message, client) {
         var event = JSON.parse(message)
         if (event.type == 'authorize') {
           if (event.success) {
-            console.log('client0 successfully authorized')
+            console.log(name + ' successfully authorized')
             client.send(JSON.stringify(new_ch))
           } else {
-            console.log('client0 auth failed')
+            console.log(name + '  auth failed')
           }
         }
         if (event.type == 'new_channel') {
@@ -158,21 +166,20 @@ describe('ws tests', () => {
   // req: {user, channel, type: 'add_user'}
   // resp: {user, channel, success, type: 'add_user'}
   it('add_user', (done) => {
-    function onMessageAddUser (done, message, client) {
+    function onMessageAddUser (done, message, client, name) {
       let add_user = {
-        user: 'client0',
+        user: name,
         channel: 'nice_channel1',
         type: 'add_user'
       }
       function onMessage (message, client) {
         var event = JSON.parse(message)
-        console.log(event)
         if (event.type == 'authorize') {
           if (event.success) {
-            console.log('client0 successfully authorized')
+            console.log(name + ' successfully authorized')
             client.send(JSON.stringify(add_user))
           } else {
-            console.log('client0 auth failed')
+            console.log(name + ' auth failed')
           }
         }
         if (event.type == 'add_user') {
@@ -189,6 +196,51 @@ describe('ws tests', () => {
       }
       onMessage(message, client)
     }
-    createPatternConnection(done, onMessageAddUser, onOpenAuth)
+    createPatternConnection(done, onMessageAddUser, onOpenAuth, 'client1')
   })
+
+
+  // req: {message, from, channel, time, type: 'message'}
+  // resp: {message, from, channel, time, type: 'message'}
+  it('message', (done) => {
+    let t = new Date().getTime()
+    function onMessageSendMessage (done, message, client, name) {
+      let new_message = {
+        message: 'ты пидор',
+        from: 'client0',
+        channel: 'nice_channel1',
+        time: t,
+        type: 'message'
+      }
+      function onMessage (message, client) {
+        var event = JSON.parse(message)
+        if (event.type == 'authorize') {
+          if (event.success) {
+            console.log(name + ' successfully authorized')
+            if (name == 'client0') {
+              console.log('send message')
+              client.send(JSON.stringify(new_message))
+            }
+          } else {
+            console.log(name + ' auth failed')
+          }
+        }
+        if (event.type == 'message') {
+          if (name == event.from) {
+            console.log('sended message to myself')
+          }
+          else {
+            expect(message).equal(JSON.stringify(new_message))
+            console.log(event)
+            client.close()
+            done()
+          }
+        }
+      }
+      onMessage(message, client)
+    }
+    createPatternConnection(done, onMessageSendMessage, onOpenAuth, 'client1')
+    createPatternConnection(done, onMessageSendMessage, onOpenAuth, 'client0')
+  })
+
 })
