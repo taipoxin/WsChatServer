@@ -1,4 +1,3 @@
-const path = require('path')
 // server config params
 const config = require('./config')
 
@@ -28,11 +27,9 @@ var lpeers = []
 // список участников (ws)
 var peers = []
 
-
 // подсоединяемся к БД
 MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, db) {
   if (err) { throw err }
-
   userListDB = db.collection('users')
 	// pattern for chat
   chatDB = db.collection('chat')
@@ -49,7 +46,7 @@ async function createNewChannel (name, fullname, senderLogin) {
 	// добавляем канал в channels
   let res = true
   // проверяем, есть ли такой канал
-  var list = await channelsDB.find({name: name}).toArray();
+  var list = await channelsDB.find({name: name}).toArray()
   if (list.length !== 0) {
     return false
   }
@@ -67,20 +64,23 @@ async function createNewChannel (name, fullname, senderLogin) {
   })
 	// {message, from, time}
   dbController.createCollection(name + '_messages')
-  return true;
+  return true
 }
 
 // {name, fullname, admin}
 async function createNewChannelTask (event) {
-  let name = event.name 
+  let name = event.name
   let fullname = event.fullname
   let admin = event.admin
   let result = await createNewChannel(name, fullname, admin)
   // отправить сообщение о создании канала отправителю
   sendResponseToSender(admin,
     {
-      name: name, fullname: fullname, 
-      admin: admin, type: 'new_channel', success: result
+      name: name,
+      fullname: fullname,
+      admin: admin,
+      type: 'new_channel',
+      success: result
     })
 }
 
@@ -89,10 +89,10 @@ async function createNewChannelTask (event) {
 */
 async function addUserToChannel (userLogin, channelName) {
   let res = true
-  let ch = await db.collection('channelName' + '_users')
+  let ch = await dbController.collection('channelName' + '_users')
 
 	// проверить, что если добавляется существующий пользователь
-  var list = await ch.find({login: user}).toArray()
+  var list = await ch.find({login: userLogin}).toArray()
 
   if (list.length !== 0) return false
   await ch.insert({login: userLogin}, {w: 1}, function (err) {
@@ -101,16 +101,22 @@ async function addUserToChannel (userLogin, channelName) {
   return res
 }
 
-
-
 // {user, channel, type}
 async function addUserToChannelTask (event) {
-  let userLogin = event.user 
+  let userLogin = event.user
   let channelName = event.channel
   let result = await addUserToChannel()
 	// отправить сообщение о добавлении нового пользователя всем участникам данного канала
+  console.log('send response adding user ' + result)
+  /*
+  sendResponseToSender(userLogin,
+    {user: userLogin, channel: channelName,
+      type: 'add_user', success: result})
+*/
+  /**/
   sendResponseToOnlineChannelUsers(channelName,
 		{user: userLogin, channel: channelName, type: 'add_user', success: result})
+/**/
 }
 
 async function addMessageToChannel (mObj, channelName) {
@@ -135,8 +141,6 @@ function showCollections () {
 
 	// console.log(dbController)
 }
-
-
 
 // проверка пользователя на предмет существования в базе данных
 function existUser (user, callback) {
@@ -166,19 +170,24 @@ function checkAuthorize (user, password, callback) {
 	// проверяем, есть ли такой пользователь
   existUser(user, function (exist) {
     if (exist) {
-			// то найдем в БД записи о нем
-      userListDB.find({login: user}).toArray(function (error, list) {
-				// проверяем пароль
-        callback(list.pop().password === password)
-      })
+      let i = lpeers.indexOf(user)
+      if (i != -1) {
+        callback(false)
+      } else {
+  			// то найдем в БД записи о нем
+        userListDB.find({login: user}).toArray(function (error, list) {
+  				// проверяем пароль
+          callback(list.pop().password === password)
+        })
+      }
     } else {
     	callback(false)
   	}
   })
 }
 
-function sendResponseToSender(sender, json) {
-  var i = lpeers.indexOf(sender);
+function sendResponseToSender (sender, json) {
+  var i = lpeers.indexOf(sender)
   // если он еще онлайн
   if (i != -1) {
     peers[i].send(JSON.stringify(json))
@@ -186,24 +195,28 @@ function sendResponseToSender(sender, json) {
 }
 
 async function sendResponseToOnlineChannelUsers (channelName, json) {
-  var ch = await dbController.connection(channelName + '_users')
-	 ch.find().toArray(function (error, list) {
-   list.forEach(function (entry) {
-     var i = lpeers.indexOf(entry)
+  var ch = await dbController.collection(channelName + '_users')
+  ch.find().toArray(function (error, list) {
+    list.forEach(function (entry) {
+      var i = lpeers.indexOf(entry.login)
       // отправляем всем, кто онлайн
-     peers[i].send(json)
-   })
- })
+      if (i != -1) {
+        console.log(entry.login)
+        console.log(json)
+        peers[i].send(JSON.stringify(json))
+      }
+    })
+  })
 }
 
 async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, from) {
-	 var ch = await dbController.connection(channelName + '_users')
+	 var ch = await dbController.collection(channelName + '_users')
 	 ch.find().toArray(function (error, list) {
    list.forEach(function (entry) {
      var i = lpeers.indexOf(entry)
       // отправляем всем, кто онлайн, кроме отправителя
      if (i != -1 && entry != from) {
-      	peers[i].send(json)
+      	peers[i].send(JSON.stringify(json))
      }
    })
  })
@@ -312,7 +325,7 @@ wss.on('connection', function (ws) {
           case 'new_channel':
             // {name, fullname, admin}
             // создаем новый аккаунт, если не существует
-            createNewChannelTask(event)  
+            createNewChannelTask(event)
             break
         }
       }
@@ -331,7 +344,6 @@ async function sendOldMessages (ws, channelName) {
     })
   })
 }
-
 
 // убрать из массива элемент по его значению
 Array.prototype.exterminate = function (value) {
@@ -352,3 +364,5 @@ rl.question('', (answer) => {
 	// showCollections()
   rl.close()
 })
+
+console.log('server started')
