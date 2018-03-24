@@ -198,7 +198,7 @@ describe('ws tests', () => {
       }
       onMessage(message, client)
     }
-    createPatternConnection(done, onMessageAddUser, onOpenAuth, 'client1')
+    createPatternConnection(done, onMessageAddUser, onOpenAuth, 'client0')
   })
 
   // req: {message, from, channel, time, type: 'message'}
@@ -207,8 +207,8 @@ describe('ws tests', () => {
     let t = new Date().getTime()
     function onMessageSendMessage (done, message, client, name) {
       let new_message = {
-        message: 'ты пидор',
-        from: 'client0',
+        message: 'ты тоже',
+        from: 'client1',
         channel: 'nice_channel1',
         time: t,
         type: 'message'
@@ -218,15 +218,17 @@ describe('ws tests', () => {
         if (event.type === 'authorize') {
           if (event.success) {
             console.log(name + ' successfully authorized')
-            if (name === 'client0') {
+            if (name === new_message.from) {
+              // timeout for auth
               console.log('send message')
-              client.send(JSON.stringify(new_message))
+              client.send(JSON.stringify(new_message)) 
             }
           } else {
             console.log(name + ' auth failed')
           }
         }
         if (event.type === 'message') {
+          console.log(name + " " +  event.from)
           if (name === event.from) {
             console.log('sended message to myself')
           } else {
