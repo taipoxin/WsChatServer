@@ -14,7 +14,7 @@ const MongoClient = require('mongodb').MongoClient
 let userListDB
 
 // channel list
-// {name, fullname}
+// {name, fullname, admin}
 let channelsDB
 
 // db object
@@ -125,9 +125,72 @@ function addMessageToChannelTask (event) {
   // отправить новое сообщение всем участникам данного канала
   console.log('send response message')
   sendResponseToOnlineChannelUsersExceptFrom(event.channel,
-    {message: event.message, from: event.from, channel: event.channel, time: event.time, type: 'message'},
+    {
+      message: event.message, from: event.from, 
+      channel: event.channel, time: event.time, type: 'message'
+    },
     event.from)
 }
+
+// return {name, fullname, admin}
+async function getChannel(channelName) {
+  // return array of all channels
+  if (channelName === '*') {
+    let chArr = await channelsDB.find().toArray()
+    return chArr
+  }
+  else {
+    let ch = await channelsDB.find({name: channelName}).toArray()
+    return ch
+  }
+}
+
+async function getChannelTask(mObj) {
+  let channelName = mObj.name
+  let res = await getChannel(channelName)
+  // send list of all channels
+  if (channelName == '*') {
+    console.log('send channel ' + channelName)
+    sendResponseToSender(mObj.from, {channels : res, type: 'get_channel'})
+  }
+  // send one channel
+  else {
+    if (res.length == 0) {
+      console.log('err: there is no channels with name ' + channelName)
+    }
+    else if (res.length != 1) {
+      console.log('err: there is more than one channels with name ' + channelName)
+    }
+    // correct
+    else if (res.length == 1) {
+      console.log('send channel ' + channelName)
+    }
+    sendResponseToSender(mObj.from, {channels : res, type: 'get_channel'})
+  }
+}
+/*
+  return all channel's messages
+*/
+async function getChannelMessages(channelName) {
+  let ch = await db.collection(channelName + '_messages')
+  let list = await ch.find().toArray()
+  return list
+}
+
+// req: {channel, from, type : 'get_channel_messages'}
+// resp:{messages, from, type}
+async function getChannelMessagesTask(mObj) {
+  let list = await getChannelMessages(mObj.channel)
+  let fr = mObj.from
+  let channelName = mObj.channel
+  console.log('sending all ' 
+    + channelName + ' channel messages to' + fr)
+  sendResponseToSender(fr, 
+    {channel: mObj.channel, messages: list, from: fr, type: mObj.type})
+}
+
+
+
 
 // проверка пользователя на предмет существования в базе данных
 function existUser (user, callback) {
@@ -270,7 +333,7 @@ wss.on('connection', function (ws) {
 
 				// ну и, наконец, отправим ответ
         ws.send(JSON.stringify(returning))
-
+        console.log('authorized')
 				// отправим старые сообщения новому участнику
 				/*
         if (success) {
@@ -280,7 +343,7 @@ wss.on('connection', function (ws) {
       })
     } else {
       if (authorized) {
-        console.log('authorized')
+        //console.log('authorized')
 
         switch (event.type) {
 					// если просто сообщение
@@ -300,6 +363,14 @@ wss.on('connection', function (ws) {
             // создаем новый аккаунт, если не существует
             createNewChannelTask(event)
             break
+          case 'get_channel':
+            // {type, name, from}
+            getChannelTask(event)
+            break
+          case 'get_channel_messages':
+            // {channel, from, type}
+            getChannelMessagesTask(event)
+            break  
         }
       }
     }
