@@ -1,3 +1,4 @@
+'use strict'
 // server config params
 const config = require('./config')
 // создаем сервер
@@ -20,6 +21,26 @@ let channelsDB
 // db object
 let db
 
+function log (message) {
+  console.log(message)
+  let d = new Date()
+  let s = d.toUTCString()
+  let dd = '' + d.getUTCMilliseconds()
+  if (dd.length == 1) {
+    dd = '0' + dd
+  }
+  if (dd.length == 2) { dd = '0' + dd }
+
+  s = s.slice(0, s.length - 4) + ':' +
+  dd + s.slice(s.length - 4)
+
+  const fs = require('fs')
+  fs.appendFile('log.txt',
+    '[' + s + ']' + ': ' + message + '\r\n', function (err) {
+      if (err) throw err
+    })
+}
+
 // список участников онлайн (их логины)
 // lpeers[i] соответствует peers[i]
 let lpeers = []
@@ -28,12 +49,23 @@ let peers = []
 
 // подсоединяемся к БД
 MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, dbController) {
-  if (err) { throw err }
+  if (err) {
+    log('Error while connecting mongodb: ' + err)
+    throw err
+  }
   userListDB = dbController.collection('users')
   channelsDB = dbController.collection('channels')
 
   db = dbController
 })
+
+function sendObjectIfOpen (ws, js_object) {
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify(js_object))
+    return true
+  }
+  return false
+}
 
 /**
 * должен вернуть false, если данный канал не был создан
@@ -70,9 +102,20 @@ async function createNewChannelTask (event) {
   let admin = event.admin
   let result = await createNewChannel(name, fullname, admin)
   // отправить сообщение о создании канала отправителю
+
+  log('creation new channel ' + name +
+    ' from ' + admin + ' status: ' + result)
+  // log channel members
+
+  if (!result) {
+    let ch = await db.collection(name + '_users')
+    let list = await ch.find().toArray()
+    log('user list of ' + name + ':')
+    log(list)
+  }
+
   sendResponseToSender(admin,
-    {
-      name: name,
+    {name: name,
       fullname: fullname,
       admin: admin,
       type: 'new_channel',
@@ -86,11 +129,11 @@ async function createNewChannelTask (event) {
 async function addUserToChannel (userLogin, channelName) {
   let res = true
   let ch = await db.collection(channelName + '_users')
-  console.log('userLogin: ' + userLogin)
+  log('userLogin: ' + userLogin)
 	// проверить, что если добавляется существующий пользователь
   let list = await ch.find({login: userLogin}).toArray()
   if (list.length !== 0) {
-    console.log('user exists')
+    log('user exists')
     return false
   }
   await ch.insertOne({login: userLogin}, {w: 1}, function (err) {
@@ -105,7 +148,7 @@ async function addUserToChannelTask (event) {
   let channelName = event.channel
   let result = await addUserToChannel(userLogin, channelName)
 	// отправить сообщение о добавлении нового пользователя всем участникам данного канала
-  console.log('send response adding user ' + result)
+  log('send response adding user ' + result)
 
   sendResponseToOnlineChannelUsers(channelName,
 		{user: userLogin, channel: channelName, type: 'add_user', success: result})
@@ -113,7 +156,7 @@ async function addUserToChannelTask (event) {
 
 async function addMessageToChannel (mObj) {
   let ch = await db.collection(mObj.channel + '_messages')
-  console.log(mObj)
+  log(mObj)
   ch.insertOne({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
     if (err) { throw err }
   })
@@ -123,74 +166,83 @@ async function addMessageToChannel (mObj) {
 function addMessageToChannelTask (event) {
   addMessageToChannel(event)
   // отправить новое сообщение всем участникам данного канала
-  console.log('send response message')
+  log('send response message')
   sendResponseToOnlineChannelUsersExceptFrom(event.channel,
     {
-      message: event.message, from: event.from, 
-      channel: event.channel, time: event.time, type: 'message'
+      message: event.message,
+      from: event.from,
+      channel: event.channel,
+      time: event.time,
+      type: 'message'
     },
     event.from)
 }
 
 // return {name, fullname, admin}
-async function getChannel(channelName) {
+async function getChannel (channelName) {
   // return array of all channels
   if (channelName === '*') {
     let chArr = await channelsDB.find().toArray()
     return chArr
-  }
-  else {
+  } else {
     let ch = await channelsDB.find({name: channelName}).toArray()
     return ch
   }
 }
 
-async function getChannelTask(mObj) {
+async function getChannelTask (mObj) {
   let channelName = mObj.name
   let res = await getChannel(channelName)
   // send list of all channels
   if (channelName == '*') {
-    console.log('send channel ' + channelName)
-    sendResponseToSender(mObj.from, {channels : res, type: 'get_channel'})
+    log('send channel ' + channelName)
+    sendResponseToSender(mObj.from, {channels: res, type: 'get_channel'})
   }
   // send one channel
   else {
     if (res.length == 0) {
-      console.log('err: there is no channels with name ' + channelName)
-    }
-    else if (res.length != 1) {
-      console.log('err: there is more than one channels with name ' + channelName)
+      log('err: there is no channels with name ' + channelName)
+    } else if (res.length != 1) {
+      log('err: there is more than one channels with name ' + channelName)
     }
     // correct
     else if (res.length == 1) {
-      console.log('send channel ' + channelName)
+      log('send channel ' + channelName)
     }
-    sendResponseToSender(mObj.from, {channels : res, type: 'get_channel'})
+    sendResponseToSender(mObj.from, {channels: res, type: 'get_channel'})
   }
 }
 /*
   return all channel's messages
+  if (channel is not exist, return type 'get_channel_messages_not_exist')
 */
-async function getChannelMessages(channelName) {
+async function getChannelMessages (channelName) { // TODO: проверить, сущ ли канал
   let ch = await db.collection(channelName + '_messages')
   let list = await ch.find().toArray()
   return list
 }
 
 // req: {channel, from, type : 'get_channel_messages'}
-// resp:{messages, from, type}
-async function getChannelMessagesTask(mObj) {
-  let list = await getChannelMessages(mObj.channel)
-  let fr = mObj.from
-  let channelName = mObj.channel
-  console.log('sending all ' 
-    + channelName + ' channel messages to' + fr)
-  sendResponseToSender(fr, 
-    {channel: mObj.channel, messages: list, from: fr, type: mObj.type})
+// resp:{channel, messages, from, type}
+async function getChannelMessagesTask (mObj) {
+  let ch = await channelsDB.find({name: mObj.channel}) // TODO: test
+  if (ch !== undefined) {
+    let list = await getChannelMessages(mObj.channel)
+    let fr = mObj.from
+    let channelName = mObj.channel
+    log('sending all ' +
+      channelName + ' channel messages to' + fr)
+    sendResponseToSender(fr,
+      {channel: mObj.channel, messages: list, from: fr, type: mObj.type})
+  }
+  else {
+    log('error get messages: there is no channel with name ' + mObj.channel)
+    let fr = mObj.from
+    sendResponseToSender(fr,
+      {channel: mObj.channel, from: fr, type: 'get_channel_messages_not_exist'})
+  }
+
 }
-
-
-
 
 // проверка пользователя на предмет существования в базе данных
 function existUser (user, callback) {
@@ -240,7 +292,7 @@ function sendResponseToSender (sender, json) {
   let i = lpeers.indexOf(sender)
   // если он еще онлайн
   if (i !== -1) {
-    peers[i].send(JSON.stringify(json))
+    sendObjectIfOpen(peers[i], json)
   }
 }
 
@@ -251,8 +303,8 @@ async function sendResponseToOnlineChannelUsers (channelName, json) {
       let i = lpeers.indexOf(entry.login)
       // отправляем всем, кто онлайн
       if (i !== -1) {
-        console.log(entry.login)
-        peers[i].send(JSON.stringify(json))
+        log(entry.login)
+        sendObjectIfOpen(peers[i], json)
       }
     })
   })
@@ -265,7 +317,7 @@ async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, fr
       let i = lpeers.indexOf(entry.login)
       // отправляем всем, кто онлайн, кроме отправителя
       if (i !== -1 && entry.login !== from) {
-        peers[i].send(JSON.stringify(json))
+        sendObjectIfOpen(peers[i], json)
       }
     })
   })
@@ -273,8 +325,9 @@ async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, fr
 
 // при новом соединении
 wss.on('connection', function (ws) {
-  console.log('---------------')
-  console.log('new connection')
+  log('---------------')
+  log('new connection')
+  log('---------------')
 	// проинициализируем переменные
   let login = ''
   let authorized = false
@@ -286,25 +339,24 @@ wss.on('connection', function (ws) {
 
     // регистрация
     if (event.type === 'register') {
-    	console.log('register type')
+    	log('register type')
 
       registerUser(event.user, event.email, event.password, function (success) {
-        console.log('registered new user: ' + success)
+        log('registered new user: ' + success)
 				// подготовка ответного события
         let returning = {type: 'register', success: success}
-
-        ws.send(JSON.stringify(returning))
+        sendObjectIfOpen(ws, returning)
       })
     }
 
 		// авторизация
     else if (event.type === 'authorize') {
-      console.log('authorize type')
+      log('authorize type')
 			// проверяем данные
       checkAuthorize(event.user, event.password, function (success) {
 				// чтоб было видно в другой области видимости
         authorized = success
-        console.log('success: ' + success)
+        log('success: ' + success)
 
 				// подготовка ответного события
         let returning = {type: 'authorize', success: success}
@@ -325,15 +377,15 @@ wss.on('connection', function (ws) {
 
 					//  если человек вышел
           ws.on('close', function () {
-            console.log('closed for ' + login)
+            log('closed for ' + login)
             peers.exterminate(ws)
             lpeers.exterminate(login)
           })
         }
 
 				// ну и, наконец, отправим ответ
-        ws.send(JSON.stringify(returning))
-        console.log('authorized')
+        sendObjectIfOpen(ws, returning)
+        log('authorized')
 				// отправим старые сообщения новому участнику
 				/*
         if (success) {
@@ -343,34 +395,37 @@ wss.on('connection', function (ws) {
       })
     } else {
       if (authorized) {
-        //console.log('authorized')
-
         switch (event.type) {
 					// если просто сообщение
           case 'message':
           	// {from, message, channel, time, type}
 						// рассылаем его всем в данном канале
-            // broadcast(login, event.message)
+            log('received as message: ' + message)
             addMessageToChannelTask(event)
             break
           case 'add_user':
           	// {user, channel, type}
           	// добавляем нового пользователя, если не существует
+            log('received as add_user: ' + message)
           	addUserToChannelTask(event)
             break
           case 'new_channel':
             // {name, fullname, admin}
             // создаем новый аккаунт, если не существует
+            log('received as new_channel: ' + message)
             createNewChannelTask(event)
             break
           case 'get_channel':
-            // {type, name, from}
+            // req:  {type, name, from}
+            // resp: {from, channels, type : 'get_channel'}
+            log('received as get_channel: ' + message)
             getChannelTask(event)
             break
           case 'get_channel_messages':
             // {channel, from, type}
+            log('received as get_channel_messages: ' + message)
             getChannelMessagesTask(event)
-            break  
+            break
         }
       }
     }
@@ -384,7 +439,7 @@ async function sendOldMessages (ws, channelName) {
     if (error) { throw error }
     messages.forEach(function (message) {
       message.type = 'message'
-      ws.send(JSON.stringify(message))
+      sendObjectIfOpen(ws, message)
     })
   })
 }
@@ -394,4 +449,6 @@ Array.prototype.exterminate = function (value) {
   this.splice(this.indexOf(value), 1)
 }
 
-console.log('server started')
+log('_______________')
+log('server started')
+log('_______________')
