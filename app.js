@@ -61,9 +61,23 @@ MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, f
 
 function sendObjectIfOpen (ws, js_object) {
   if (ws.readyState === 1) {
-    ws.send(JSON.stringify(js_object))
+    let cache = [];
+    let js = JSON.stringify(js_object, function(key, value) {
+        if (typeof value === 'object' && value !== null) {
+            if (cache.indexOf(value) !== -1) {
+                // Circular reference found, discard key
+                return;
+            }
+            // Store value in our collection
+            cache.push(value);
+        }
+        return value;
+    })
+    cache = null; // Enable garbage collection
+    ws.send(js)
     return true
   }
+  
   return false
 }
 
@@ -216,32 +230,39 @@ async function getChannelTask (mObj) {
   return all channel's messages
   if (channel is not exist, return type 'get_channel_messages_not_exist')
 */
-async function getChannelMessages (channelName) { // TODO: проверить, сущ ли канал
+async function getChannelMessages (channelName, fromTime) { // TODO: проверить, сущ ли канал
   let ch = await db.collection(channelName + '_messages')
-  let list = await ch.find().toArray()
+  let list
+  // load all
+  if (fromTime == 0) {
+    list = await ch.find().toArray()
+  }
+  // load more than
+  else {
+    list = await ch.find({time: { $gt: fromTime } }).toArray()
+  }
+  //log(list)
   return list
 }
 
-// req: {channel, from, type : 'get_channel_messages'}
-// resp:{channel, messages, from, type}
+// req: {channel, from, time, type : 'get_channel_messages'}
+// resp:{channel, messages, from, time, type}
 async function getChannelMessagesTask (mObj) {
   let ch = await channelsDB.find({name: mObj.channel}) // TODO: test
   if (ch !== undefined) {
-    let list = await getChannelMessages(mObj.channel)
+    let list = await getChannelMessages(mObj.channel, mObj.time)
     let fr = mObj.from
     let channelName = mObj.channel
-    log('sending all ' +
-      channelName + ' channel messages to' + fr)
+    log('sending ' + list.length +  ' ' +
+      channelName + ' channel messages to ' + fr)
     sendResponseToSender(fr,
       {channel: mObj.channel, messages: list, from: fr, type: mObj.type})
-  }
-  else {
+  } else {
     log('error get messages: there is no channel with name ' + mObj.channel)
     let fr = mObj.from
     sendResponseToSender(fr,
       {channel: mObj.channel, from: fr, type: 'get_channel_messages_not_exist'})
   }
-
 }
 
 // проверка пользователя на предмет существования в базе данных
@@ -422,7 +443,7 @@ wss.on('connection', function (ws) {
             getChannelTask(event)
             break
           case 'get_channel_messages':
-            // {channel, from, type}
+            // {channel, from, time, type}
             log('received as get_channel_messages: ' + message)
             getChannelMessagesTask(event)
             break

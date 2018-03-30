@@ -3,6 +3,7 @@ const config = require('../config')
 const mocha = require('mocha')
 const chai = require('chai')
 const WebSocket = require('ws')
+let it = mocha.it
 
 let expect = chai.expect
 
@@ -165,8 +166,8 @@ describe('ws tests', () => {
   it('new_channel', (done) => {
     let name = 'client1'
 
-    let new_ch = {name: 'nice_channel2',
-      fullname: 'channel for nice people',
+    let new_ch = {name: 'nice_channel1',
+      fullname: 'nice channel 1',
       admin: name,
       type: 'new_channel'}
 
@@ -200,8 +201,7 @@ describe('ws tests', () => {
   // resp: {channels, type : 'get_channel'}
   it('get_channel', (done) => {
     let name = 'client0'
-    let chName = 'nice_channel2'
-    let fullChName = 'nice channel index 2'
+    let chName = 'nice_channel1'
 
     let get_ch_req = {name: chName, from: name, type: 'get_channel'}
 
@@ -238,14 +238,14 @@ describe('ws tests', () => {
     })()
   })
 
-  // req:  {channel, from, type : 'get_channel_messages'}
-  // resp: {channel, messages, from, type}
+  // req:  {channel, from, time, type : 'get_channel_messages'}
+  // resp: {channel, messages, from, time, type}
   it('get_channel_messages', (done) => {
     let name = 'client0'
     let chName = 'nice_channel3'
-    let fullChName = 'nice channel index 2'
+    let fullChName = 'nice channel 3'
 
-    let get_ch_m_req = {channel: chName, from: name, type: 'get_channel_messages'}
+    let get_ch_m_req = {channel: chName, from: name, time: 0, type: 'get_channel_messages'}
 
     function onMessageGetChannelMessages (done, event, client, name) {
       if (event.type === 'get_channel_messages') {
@@ -279,12 +279,12 @@ describe('ws tests', () => {
   // req: {user, channel, type: 'add_user'}
   // resp: {user, channel, success, type: 'add_user'}
   it('add_user', (done) => {
-    let name = 'client0'
+    let name = 'client1'
     let chName = 'nice_channel2'
-    let fullChName = 'nice channel index 2'
+    let fullChName = 'nice channel 2'
 
     let add_user = {user: name, channel: chName, type: 'add_user'}
-    let cr_ch = {chName, fullChName, name, type: 'new_channel'}
+    let cr_ch = {name : chName, fullname: fullChName, admin: name, type: 'new_channel'}
 
     function onMessageAddUser (done, event, client, name) {
       if (event.type === 'add_user') {
