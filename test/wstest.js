@@ -28,11 +28,11 @@ logTest()
 describe('ws tests', () => {
   function onOpen (client, req) {
     let timeout_t = 10
-    let times = 100
+    let times = 1000
     let i = 0;
     // sync loop for 5 tries to send request to ws
     (function loop () {
-      if (i === times + 10) { return }
+      if (i === times + 100) { return }
       if (i++ > times) {
         console.log('sending failed')
         return
@@ -393,4 +393,39 @@ describe('ws tests', () => {
       createPatternConnection(done, onMessageSendMessage, onOpenAuth, localName0)
     }, 500)
   })
+
+/*
+  it('much connections', (done) => {
+    // try to create new channel
+    
+    let name = 'client'
+
+    for (let i = 0; i < 1000; i++) {
+      let n = name + i
+      let new_ch1 = { name: 'nice_channel1',
+        fullname: 'channel for nice people 1',
+        admin: n,
+        type: 'new_channel' 
+      }
+      let t = new Date().getTime()
+      let new_message = {message: 'хэх',
+        from: n,
+        channel: 'nice_channel1',
+        time: t,
+        type: 'message' 
+      }
+
+      // try to add user to channel
+      let add_user1 = { user: n, channel: 'nice_channel1', type: 'add_user' }
+
+      let js_arr1 = []
+      //js_arr1.push(new_ch1)
+      js_arr1.push(add_user1)
+      //js_arr1.push(new_message)
+
+      createPatternConnection(done, onMessageSendJSON, onOpenAuth, n, new_message)
+    }
+    //setTimeout(done(), 4500)
+  })
+*/
 })

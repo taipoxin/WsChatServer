@@ -1,14 +1,14 @@
 'use strict'
 // server config params
 const config = require('./config')
-// создаем сервер
+
 const WebSocketServer = require('ws').Server
 const wss = new WebSocketServer({port: config.ws_port, host: config.hostname})
 
-// соединение с БД
 const MongoClient = require('mongodb').MongoClient
 
-// ссылки на коллекции:
+
+// collection links
 
 // registration users data
 // {login, email, password}
@@ -20,6 +20,37 @@ let channelsDB
 
 // db object
 let db
+const fs = require('fs')
+const async = require('async')
+const utils = require('utils')
+let MAX_OPEN_FILES = 255
+let __writeQueue = async.queue(function (task, callback) {
+        task(callback);
+    }, MAX_OPEN_FILES);
+
+let __log = function (filename, text) {
+  return function (callback) {
+    //var s = utils.digitime() + ' ' + text + '\n';
+
+    fs.open(filename, "a", 0x1a4, function (error, file_handle) {
+      if (!error) {
+        fs.write(file_handle, text, null, 'utf8', function (err) {
+          if (err) {
+            console.log(filename + ' ' + err);
+          }
+          fs.close(file_handle, function () {
+            callback();
+          });                        
+        });
+      }
+      else {
+        console.log(filename + ' ' + error);
+        callback();
+      }
+    });
+  };
+};
+
 
 function log (message) {
   console.log(message)
@@ -34,20 +65,26 @@ function log (message) {
   s = s.slice(0, s.length - 4) + ':' +
   dd + s.slice(s.length - 4)
 
-  const fs = require('fs')
+  let file = 'log.txt'
+  let mess = '[' + s + ']' + ': ' + message + '\r\n'
+  __writeQueue.push(__log(file, mess));
+  
+  /*
   fs.appendFile('log.txt',
     '[' + s + ']' + ': ' + message + '\r\n', function (err) {
       if (err) throw err
-    })
+    }
+  )
+  */
+
 }
 
-// список участников онлайн (их логины)
-// lpeers[i] соответствует peers[i]
-let lpeers = []
-// список участников (ws)
-let peers = []
+// list of online users
+// lpeers[i] corresponds to peers[i]
+let lpeers = [] // logins
+let peers = []  // connection objects
 
-// подсоединяемся к БД
+
 MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, dbController) {
   if (err) {
     log('Error while connecting mongodb: ' + err)
@@ -59,48 +96,52 @@ MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, f
   db = dbController
 })
 
+// stringify function with circular reference checking
+// see: https://stackoverflow.com/questions/11616630
+function stringify(object) {
+  let cache = []
+  let js = JSON.stringify(object, function(key, value) {
+      if (typeof value === 'object' && value !== null) {
+          if (cache.indexOf(value) !== -1) {
+              // Circular reference found, discard key
+              return
+          }
+          // Store value in our collection
+          cache.push(value)
+      }
+      return value
+  })
+  cache = null // Enable garbage collection
+  return js
+}
+
 function sendObjectIfOpen (ws, js_object) {
   if (ws.readyState === 1) {
-    let cache = [];
-    let js = JSON.stringify(js_object, function(key, value) {
-        if (typeof value === 'object' && value !== null) {
-            if (cache.indexOf(value) !== -1) {
-                // Circular reference found, discard key
-                return;
-            }
-            // Store value in our collection
-            cache.push(value);
-        }
-        return value;
-    })
-    cache = null; // Enable garbage collection
-    ws.send(js)
+    ws.send(stringify(js_object))
     return true
   }
-  
   return false
 }
 
-/**
-* должен вернуть false, если данный канал не был создан
-*/
+
+// should return false if channel is has not been created
 async function createNewChannel (name, fullname, senderLogin) {
-	// добавляем канал в channels
   let res = true
-  // проверяем, есть ли такой канал
+  // check if channel exists
   let list = await channelsDB.find({name: name}).toArray()
   if (list.length !== 0) {
     return false
   }
-  // добавляем канал
+
   await channelsDB.insert({name: name, fullname: fullname}, {w: 1}, function (err) {
     if (err) { res = false }
   })
   if (!res) return false
-	// создаем его личные collections: список пользователей и список сообщений
-	// {login, type}
+	// create channel collections
+	
+  // {login, type}
   let users = db.collection(name + '_users')
-  // добавляем сразу же отправителя в качестве администратора
+  // set sender as administrator
   users.insertOne({login: senderLogin, type: 'admin'}, {w: 1}, function (err) {
     if (err) { throw err }
   })
@@ -109,23 +150,34 @@ async function createNewChannel (name, fullname, senderLogin) {
   return true
 }
 
+function logList(prevMessage, list, name) {
+  let idx = 0
+  list.forEach(x => {
+    if (idx === 0) {
+      log(prevMessage)
+    }
+    log(name + '[' + idx + ']:')
+    log(stringify(x))
+    idx++
+  })
+}
+
 // {name, fullname, admin}
 async function createNewChannelTask (event) {
   let name = event.name
   let fullname = event.fullname
   let admin = event.admin
   let result = await createNewChannel(name, fullname, admin)
-  // отправить сообщение о создании канала отправителю
 
   log('creation new channel ' + name +
     ' from ' + admin + ' status: ' + result)
-  // log channel members
 
+  // show channel members if it has been existed
   if (!result) {
     let ch = await db.collection(name + '_users')
-    let list = await ch.find().toArray()
-    log('user list of ' + name + ':')
-    log(list)
+    let list = await ch.find()
+    logList('user list of ' + name + ':', list, name)
+
   }
 
   sendResponseToSender(admin,
@@ -137,14 +189,12 @@ async function createNewChannelTask (event) {
     })
 }
 
-/**
-* должен вернуть false, если данная запись не была добавлена
-*/
+// should return false if user is has not been added
 async function addUserToChannel (userLogin, channelName) {
   let res = true
   let ch = await db.collection(channelName + '_users')
   log('userLogin: ' + userLogin)
-	// проверить, что если добавляется существующий пользователь
+	// check user existence
   let list = await ch.find({login: userLogin}).toArray()
   if (list.length !== 0) {
     log('user exists')
@@ -161,7 +211,7 @@ async function addUserToChannelTask (event) {
   let userLogin = event.user
   let channelName = event.channel
   let result = await addUserToChannel(userLogin, channelName)
-	// отправить сообщение о добавлении нового пользователя всем участникам данного канала
+  // send response about adding new user to all members of the channel
   log('send response adding user ' + result)
 
   sendResponseToOnlineChannelUsers(channelName,
@@ -170,7 +220,6 @@ async function addUserToChannelTask (event) {
 
 async function addMessageToChannel (mObj) {
   let ch = await db.collection(mObj.channel + '_messages')
-  log(mObj)
   ch.insertOne({message: mObj.message, from: mObj.from, time: mObj.time}, {w: 1}, function (err) {
     if (err) { throw err }
   })
@@ -179,17 +228,17 @@ async function addMessageToChannel (mObj) {
 // {message, from, time, channel, type: 'message'}
 function addMessageToChannelTask (event) {
   addMessageToChannel(event)
-  // отправить новое сообщение всем участникам данного канала
-  log('send response message')
-  sendResponseToOnlineChannelUsersExceptFrom(event.channel,
-    {
-      message: event.message,
-      from: event.from,
-      channel: event.channel,
-      time: event.time,
-      type: 'message'
-    },
-    event.from)
+  // broadcast message
+  log('send response message to others except ' + event.from)
+  let resp = {
+    message: event.message,
+    from: event.from,
+    channel: event.channel,
+    time: event.time,
+    type: 'message'
+  }
+  log(stringify(resp))
+  sendResponseToOnlineChannelUsersExceptFrom(event.channel, resp, event.from)
 }
 
 // return {name, fullname, admin}
@@ -226,10 +275,9 @@ async function getChannelTask (mObj) {
     sendResponseToSender(mObj.from, {channels: res, type: 'get_channel'})
   }
 }
-/*
-  return all channel's messages
-  if (channel is not exist, return type 'get_channel_messages_not_exist')
-*/
+
+// return all channel's messages
+// if channel is not exist, return type 'get_channel_messages_not_exist'
 async function getChannelMessages (channelName, fromTime) { // TODO: проверить, сущ ли канал
   let ch = await db.collection(channelName + '_messages')
   let list
@@ -265,53 +313,49 @@ async function getChannelMessagesTask (mObj) {
   }
 }
 
-// проверка пользователя на предмет существования в базе данных
-function existUser (user, callback) {
-  userListDB.find({login: user}).toArray(function (error, list) {
-    callback(list.length !== 0)
-  })
+function isUserExists(user) {
+  return userListDB.findOne({login: user})
 }
 
-function registerUser (user, email, password, callback) {
-	// проверяем, есть ли такой пользователь
-  existUser(user, function (exist) {
-  	if (exist) {
-  		callback(false)
-  	}
-  	// register new user
-  	else {
-  		userListDB.insertOne({login: user, email: email, password: password}, {w: 1}, function (err) {
-    if (err) { throw err }
-  })
-      // возвращаем успешную регистрацию
+async function registerUser (user, email, password, callback) {
+  if (await isUserExists(user)) {
+    callback(false)
+  }
+  else {
+    let err = await userListDB.insertOne(
+      {login: user, email: email, password: password}, {w: 1})
+    if (err) {
+      log('inserting user err: ' + err)
+      callback(false)
+    }
     callback(true)
-  	}
-  })
+  }
 }
 
-function checkAuthorize (user, password, callback) {
-	// проверяем, есть ли такой пользователь
-  existUser(user, function (exist) {
-    if (exist) {
-      let i = lpeers.indexOf(user)
-      if (i !== -1) {
-        callback(false)
-      } else {
-  			// то найдем в БД записи о нем
-        userListDB.find({login: user}).toArray(function (error, list) {
-  				// проверяем пароль
-          callback(list.pop().password === password)
-        })
-      }
+// callback true if user exist and password correct
+// otherwise - false
+async function checkUserAuthorize (user, password, callback) {
+  if (await isUserExists(user)) {
+    let i = lpeers.indexOf(user)
+    // if already authorised - deny access
+    if (i !== -1) {
+      callback(false)
+    // return checking password
     } else {
-    	callback(false)
-  	}
-  })
+      let u = await userListDB.findOne({login: user})
+      callback(u.password === password)
+    }
+  }
+  // not exist in db
+  else {
+    callback(false)
+  }
 }
+
 
 function sendResponseToSender (sender, json) {
   let i = lpeers.indexOf(sender)
-  // если он еще онлайн
+  // only if online now
   if (i !== -1) {
     sendObjectIfOpen(peers[i], json)
   }
@@ -322,7 +366,7 @@ async function sendResponseToOnlineChannelUsers (channelName, json) {
   ch.find().toArray(function (error, list) {
     list.forEach(function (entry) {
       let i = lpeers.indexOf(entry.login)
-      // отправляем всем, кто онлайн
+      // for online members only
       if (i !== -1) {
         log(entry.login)
         sendObjectIfOpen(peers[i], json)
@@ -336,7 +380,7 @@ async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, fr
   ch.find().toArray(function (error, list) {
     list.forEach(function (entry) {
       let i = lpeers.indexOf(entry.login)
-      // отправляем всем, кто онлайн, кроме отправителя
+      // for online except sender
       if (i !== -1 && entry.login !== from) {
         sendObjectIfOpen(peers[i], json)
       }
@@ -344,80 +388,84 @@ async function sendResponseToOnlineChannelUsersExceptFrom (channelName, json, fr
   })
 }
 
-// при новом соединении
+let connectionCount = 0
+
+// every new connection to ws
 wss.on('connection', function (ws) {
   log('---------------')
   log('new connection')
   log('---------------')
-	// проинициализируем переменные
+  connectionCount++
+
+	// start init
   let login = ''
   let authorized = false
 
-	// при входящем сообщении
+  //  on exit
+  ws.on('close', function () {
+    connectionCount--
+    if (authorized) {
+      peers.exterminate(ws)
+      lpeers.exterminate(login)
+      log('closed for ' + login + ', online now: ' + '[' + lpeers + ']')
+    }
+    else {
+      log('disconnected')
+    }
+    log('connection count: ' + connectionCount)
+  })
+
+	// on any request
   ws.on('message', function (message) {
-		// получаем событие в пригодном виде
     let event = JSON.parse(message)
 
-    // регистрация
     if (event.type === 'register') {
     	log('register type')
-
+      // save if not exists
       registerUser(event.user, event.email, event.password, function (success) {
         log('registered new user: ' + success)
-				// подготовка ответного события
+				
+        // preparing response
         let returning = {type: 'register', success: success}
         sendObjectIfOpen(ws, returning)
       })
     }
 
-		// авторизация
     else if (event.type === 'authorize') {
       log('authorize type')
-			// проверяем данные
-      checkAuthorize(event.user, event.password, function (success) {
-				// чтоб было видно в другой области видимости
+			// check data and existence
+      checkUserAuthorize(event.user, event.password, function (success) {
+				
         authorized = success
         log('success: ' + success)
 
-				// подготовка ответного события
+				// preparing response
         let returning = {type: 'authorize', success: success}
 
-				// если успех, то
+				// if correct data
         if (success) {
-					// добавим к ответному событию список людей онлайн
-          returning.online = lpeers
-
-					// добавим самого человека в список людей онлайн
+          log('authorized')
+					
+          // add user to lpeers
           lpeers.push(event.user)
 
-					// добавим ссылку на сокет в список соединений
+          // add connection to list
           peers.push(ws)
-
-					// чтобы было видно в другой области видимости
+          
+          // list of online users
+          returning.online = lpeers
           login = event.user
 
-					//  если человек вышел
-          ws.on('close', function () {
-            log('closed for ' + login)
-            peers.exterminate(ws)
-            lpeers.exterminate(login)
-          })
+          log('online now: ' + '[' + returning.online + ']')
+   
         }
-
-				// ну и, наконец, отправим ответ
+				// send request
         sendObjectIfOpen(ws, returning)
-        log('authorized')
-				// отправим старые сообщения новому участнику
-				/*
-        if (success) {
-          sendNewMessages(ws)
-        }
-        */
       })
     } else {
+      // requests handled only for authorised user
       if (authorized) {
         switch (event.type) {
-					// если просто сообщение
           case 'message':
           	// {from, message, channel, time, type}
 						// рассылаем его всем в данном канале
@@ -453,7 +501,6 @@ wss.on('connection', function (ws) {
   })
 })
 
-// функция отправки старых сообщений только что зашедшему участнику канала
 async function sendOldMessages (ws, channelName) {
   let ch = await db.connection(channelName + '_messages')
   ch.find().toArray(function (error, messages) {
@@ -465,7 +512,7 @@ async function sendOldMessages (ws, channelName) {
   })
 }
 
-// убрать из массива элемент по его значению
+// remove element from arr by it value
 Array.prototype.exterminate = function (value) {
   this.splice(this.indexOf(value), 1)
 }
