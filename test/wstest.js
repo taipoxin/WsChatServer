@@ -32,9 +32,11 @@ describe('ws tests', () => {
     let i = 0;
     // sync loop for 5 tries to send request to ws
     (function loop () {
-      if (i === times + 100) { return }
-      if (i++ > times) {
+      if (i === times + 100) { 
         console.log('sending failed')
+        return 
+      }
+      if (i++ > times) {
         return
       };
       setTimeout(function () {
@@ -276,21 +278,22 @@ describe('ws tests', () => {
     })()
   })
 
-  // req: {user, channel, type: 'add_user'}
-  // resp: {user, channel, success, type: 'add_user'}
+  // req: {sender, user, channel, type: 'add_user'}
+  // resp: {sender, user, channel, success, type: 'add_user'}
   it('add_user', (done) => {
-    let name = 'client1'
-    let chName = 'nice_channel2'
+    let sender = 'client1'
+    let name = 'client0'
+    let chName = 'nice_channel6'
     let fullChName = 'nice channel 2'
 
-    let add_user = {user: name, channel: chName, type: 'add_user'}
-    let cr_ch = {name : chName, fullname: fullChName, admin: name, type: 'new_channel'}
+    let add_user = {sender: sender, user: name, channel: chName, type: 'add_user'}
+    let cr_ch = {name : chName, fullname: fullChName, admin: sender, type: 'new_channel'}
 
     function onMessageAddUser (done, event, client, name) {
       if (event.type === 'add_user') {
         if (event.success) {
           console.log('user ' + event.user + ' successfully added to ' +
-            event.channel + ' channel')
+            event.channel + ' channel from ' + event.sender )
         } else {
           console.log('user ' + event.user + ' addition to ' +
             event.channel + ' failed')
@@ -309,14 +312,14 @@ describe('ws tests', () => {
       )
       await setTimeout(() => {
         // create channel
-        createPatternConnection(done, onMessageSendJSON, onOpenAuth, name, cr_ch)
+        createPatternConnection(done, onMessageSendJSON, onOpenAuth, sender, cr_ch)
       }, 500)
 
       setTimeout(() => {
         // add user
         console.log('test adding user')
         createPatternConnection(done, onMessageSendJSON, onOpenAuth,
-          name, add_user, onMessageAddUser)
+          sender, add_user, onMessageAddUser)
       }, 1000)
     })()
   })

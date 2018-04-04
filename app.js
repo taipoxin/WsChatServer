@@ -190,7 +190,7 @@ async function createNewChannelTask (event) {
 }
 
 // should return false if user is has not been added
-async function addUserToChannel (userLogin, channelName) {
+async function addUserToChannel (sender, userLogin, channelName) {
   let res = true
   let ch = await db.collection(channelName + '_users')
   log('userLogin: ' + userLogin)
@@ -206,16 +206,17 @@ async function addUserToChannel (userLogin, channelName) {
   return res
 }
 
-// {user, channel, type}
+// {sender, user, channel, type}
 async function addUserToChannelTask (event) {
+  let sender = event.sender
   let userLogin = event.user
   let channelName = event.channel
-  let result = await addUserToChannel(userLogin, channelName)
+  let result = await addUserToChannel(sender, userLogin, channelName)
   // send response about adding new user to all members of the channel
   log('send response adding user ' + result)
 
   sendResponseToOnlineChannelUsers(channelName,
-		{user: userLogin, channel: channelName, type: 'add_user', success: result})
+		{sender: sender, user: userLogin, channel: channelName, type: 'add_user', success: result})
 }
 
 async function addMessageToChannel (mObj) {
@@ -371,6 +372,7 @@ function sendResponseToSender (sender, json) {
 async function sendResponseToOnlineChannelUsers (channelName, json) {
   let ch = await db.collection(channelName + '_users')
   ch.find().toArray(function (error, list) {
+    log('online now in ' + channelName + ':')
     list.forEach(function (entry) {
       let i = lpeers.indexOf(entry.login)
       // for online members only
