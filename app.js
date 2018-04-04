@@ -313,6 +313,13 @@ async function getChannelMessagesTask (mObj) {
   }
 }
 
+// req: {sender, type : 'get_online_users'}
+// resp:{sender, users, type}
+function getOnlineUsersTask(mObj) {
+  sendResponseToSender(mObj.sender, {sender : mObj.sender, users: lpeers, type : mObj.type})
+}
+
+
 function isUserExists(user) {
   return userListDB.findOne({login: user})
 }
@@ -494,6 +501,12 @@ wss.on('connection', function (ws) {
             // {channel, from, time, type}
             log('received as get_channel_messages: ' + message)
             getChannelMessagesTask(event)
+            break
+          case 'get_online_users':
+            // return all online users
+            // {sender, type}
+            log('received as get_online_users: ' + message)
+            getOnlineUsersTask(event)
             break
         }
       }

@@ -394,6 +394,42 @@ describe('ws tests', () => {
     }, 500)
   })
 
+  // req: {sender, type : 'get_online_users'}
+// resp:{sender, users, type}
+  it('get_online_users', (done) => {
+    let name = 'client0'
+    let name2 = 'client1'
+
+    let get_users = {sender: name, type: 'get_online_users'}
+
+    let us = [name2, name]
+
+    function onMessageGetOnlineUsers (done, event, client, name) {
+      if (event.type === 'get_online_users') {
+        console.log('online users list length: ' + event.users.length)
+        console.log('online users: ' + event.users)
+        if (us.length == event.users.length) {
+          done()
+        }
+        client.close()
+      }
+    }
+    // require user
+    (async () => {
+      // register
+      await createPatternConnection(done,
+        (done, message, client) => { setTimeout(() => {client.close()}, 200) },
+        onOpenRegAndAuth, name2)
+
+      setTimeout(() => {
+        // get channel
+        console.log('test get channel')
+        createPatternConnection(done, onMessageSendJSON, onOpenRegAndAuth,
+          name, get_users, onMessageGetOnlineUsers)
+      }, 50)
+    })()    
+  })
+
 /*
   it('much connections', (done) => {
     // try to create new channel
