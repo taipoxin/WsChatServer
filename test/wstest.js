@@ -32,9 +32,9 @@ describe('ws tests', () => {
     let i = 0;
     // sync loop for 5 tries to send request to ws
     (function loop () {
-      if (i === times + 100) { 
+      if (i === times + 100) {
         console.log('sending failed')
-        return 
+        return
       }
       if (i++ > times) {
         return
@@ -169,7 +169,7 @@ describe('ws tests', () => {
     let name = 'client1'
 
     let new_ch = {name: 'nice_channel1',
-      fullname: 'nice channel 1',
+      fullname: 'Работа',
       admin: name,
       type: 'new_channel'}
 
@@ -245,7 +245,7 @@ describe('ws tests', () => {
   it('get_channel_messages', (done) => {
     let name = 'client0'
     let chName = 'nice_channel3'
-    let fullChName = 'nice channel 3'
+    let fullChName = 'Вечеринка'
 
     let get_ch_m_req = {channel: chName, from: name, time: 0, type: 'get_channel_messages'}
 
@@ -280,20 +280,21 @@ describe('ws tests', () => {
 
   // req: {sender, user, channel, type: 'add_user'}
   // resp: {sender, user, channel, success, type: 'add_user'}
+  // case: sender add one user to channel
   it('add_user', (done) => {
     let sender = 'client1'
     let name = 'client0'
     let chName = 'nice_channel6'
-    let fullChName = 'nice channel 2'
+    let fullChName = 'Учебная группа'
 
-    let add_user = {sender: sender, user: name, channel: chName, type: 'add_user'}
-    let cr_ch = {name : chName, fullname: fullChName, admin: sender, type: 'new_channel'}
+    let add_user = {sender: sender, user: name, channel: chName, fullname: fullChName, type: 'add_user'}
+    let cr_ch = {name: chName, fullname: fullChName, admin: sender, type: 'new_channel'}
 
     function onMessageAddUser (done, event, client, name) {
       if (event.type === 'add_user') {
         if (event.success) {
           console.log('user ' + event.user + ' successfully added to ' +
-            event.channel + ' channel from ' + event.sender )
+            event.channel + ' channel from ' + event.sender)
         } else {
           console.log('user ' + event.user + ' addition to ' +
             event.channel + ' failed')
@@ -372,21 +373,17 @@ describe('ws tests', () => {
 
     // try to create new channel
     let new_ch1 = { name: 'nice_channel1',
-      fullname: 'channel for nice people 1',
+      fullname: 'Работа',
       admin: localName1,
       type: 'new_channel' }
 
-    // try to add user to channel
-    let add_user1 = { user: localName1, channel: 'nice_channel1', type: 'add_user' }
-
     let js_arr1 = []
     js_arr1.push(new_ch1)
-    js_arr1.push(add_user1)
 
     createPatternConnection(done, onMessageSendJSONArray, onOpenRegAndAuth, localName1, js_arr1)
 
     // try to add user to channel
-    let add_user0 = { user: localName0, channel: 'nice_channel1', type: 'add_user' }
+    let add_user0 = {sender: localName1, user: localName0, channel: 'nice_channel1', /* fullname: 'Работа', */ type: 'add_user' }
 
     createPatternConnection(done, onMessageSendJSON, onOpenRegAndAuth, localName0, add_user0)
 
@@ -398,7 +395,7 @@ describe('ws tests', () => {
   })
 
   // req: {sender, type : 'get_online_users'}
-// resp:{sender, users, type}
+  // resp:{sender, users, type}
   it('get_online_users', (done) => {
     let name = 'client0'
     let name2 = 'client1'
@@ -421,7 +418,7 @@ describe('ws tests', () => {
     (async () => {
       // register
       await createPatternConnection(done,
-        (done, message, client) => { setTimeout(() => {client.close()}, 200) },
+        (done, message, client) => { setTimeout(() => { client.close() }, 200) },
         onOpenRegAndAuth, name2)
 
       setTimeout(() => {
@@ -430,13 +427,13 @@ describe('ws tests', () => {
         createPatternConnection(done, onMessageSendJSON, onOpenRegAndAuth,
           name, get_users, onMessageGetOnlineUsers)
       }, 50)
-    })()    
+    })()
   })
 
 /*
   it('much connections', (done) => {
     // try to create new channel
-    
+
     let name = 'client'
 
     for (let i = 0; i < 1000; i++) {
@@ -444,14 +441,14 @@ describe('ws tests', () => {
       let new_ch1 = { name: 'nice_channel1',
         fullname: 'channel for nice people 1',
         admin: n,
-        type: 'new_channel' 
+        type: 'new_channel'
       }
       let t = new Date().getTime()
       let new_message = {message: 'хэх',
         from: n,
         channel: 'nice_channel1',
         time: t,
-        type: 'message' 
+        type: 'message'
       }
 
       // try to add user to channel
