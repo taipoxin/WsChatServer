@@ -77,26 +77,23 @@ async function createNewChannel (name, fullname, senderLogin) {
 
 // {name, fullname, admin}
 async function createNewChannelTask (event) {
-  let name = event.name
-  let fullname = event.fullname
-  let admin = event.admin
-  let result = await createNewChannel(name, fullname, admin)
+  let result = await createNewChannel(event.name, event.fullname, event.admin)
 
-  log('creation new channel ' + name +
-    ' from ' + admin + ' status: ' + result)
+  log('creation new channel ' + event.name +
+    ' from ' + event.admin + ' status: ' + event.result)
 
   // show channel members if it has been existed
   if (!result) {
-    let ch = await db.collection(name + '_users')
+    let ch = await db.collection(event.name + '_users')
     let list = await ch.find()
-    utils.logList('user list of ' + name + ':', list, name)
+    utils.logList('user list of ' + event.name + ':', list, event.name)
   }
 
-  sendResponseToSender(admin,
-    {name: name,
-      fullname: fullname,
-      admin: admin,
-      type: 'new_channel',
+  sendResponseToSender(event.admin,
+    {name: event.name,
+      fullname: event.fullname,
+      admin: event.admin,
+      type: event.type,
       success: result
     })
 }
@@ -199,7 +196,7 @@ async function getChannelTask (mObj) {
 
 // return all channel's messages
 // if channel is not exist, return type 'get_channel_messages_not_exist'
-async function getChannelMessages (channelName, fromTime) { // TODO: проверить, сущ ли канал
+async function getChannelMessages (channelName, fromTime) {
   let ch = await db.collection(channelName + '_messages')
   let list
   // load all
@@ -351,7 +348,7 @@ wss.on('connection', function (ws) {
       lpeers.exterminate(login)
       log('closed for ' + login + ', online now: ' + '[' + lpeers + ']')
     } else {
-      log('disconnected')
+      log('disconnected unauthorized')
     }
     log('connection count: ' + connectionCount)
   })
