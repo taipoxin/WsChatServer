@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
 database
+database_test
 testlog.txt
 log.txt
 errors.txt

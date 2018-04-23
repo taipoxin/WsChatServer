@@ -1,8 +1,15 @@
 'use strict'
 // server config params
 const config = require('./config')
+
+let mongodbHost = process.env.OPENSHIFT_MONGODB_HOSTNAME || config.hostname
+let mongodbPort = process.env.OPENSHIFT_MONGODB_PORT || config.mongodb_port
+let wsHost = process.env.OPENSHIFT_HOSTNAME || config.hostname
+let wsPort = process.env.OPENSHIFT_WS_PORT || config.ws_port 
+let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || (wsHost + ':' + wsPort)
+
 const WebSocketServer = require('ws').Server
-const wss = new WebSocketServer({port: config.ws_port, host: config.hostname})
+const wss = new WebSocketServer({host: wsHost, port: wsPort})
 const MongoClient = require('mongodb').MongoClient
 const log = require('./logging')
 const utils = require('./utils')
@@ -25,7 +32,7 @@ let db
 let lpeers = [] // logins
 let peers = []  // connection objects
 
-MongoClient.connect('mongodb://' + config.hostname + ':' + config.mongod_port, function (err, dbController) {
+MongoClient.connect('mongodb://' + mongodbURL, function (err, dbController) {
   if (err) {
     log('Error while connecting mongodb: ' + err)
     throw err
@@ -77,26 +84,23 @@ async function createNewChannel (name, fullname, senderLogin) {
 
 // {name, fullname, admin}
 async function createNewChannelTask (event) {
-  let name = event.name
-  let fullname = event.fullname
-  let admin = event.admin
-  let result = await createNewChannel(name, fullname, admin)
+  let result = await createNewChannel(event.name, event.fullname, event.admin)
 
-  log('creation new channel ' + name +
-    ' from ' + admin + ' status: ' + result)
+  log('creation new channel ' + event.name +
+    ' from ' + event.admin + ' status: ' + event.result)
 
   // show channel members if it has been existed
   if (!result) {
-    let ch = await db.collection(name + '_users')
+    let ch = await db.collection(event.name + '_users')
     let list = await ch.find()
-    utils.logList('user list of ' + name + ':', list, name)
+    utils.logList('user list of ' + event.name + ':', list, event.name)
   }
 
-  sendResponseToSender(admin,
-    {name: name,
-      fullname: fullname,
-      admin: admin,
-      type: 'new_channel',
+  sendResponseToSender(event.admin,
+    {name: event.name,
+      fullname: event.fullname,
+      admin: event.admin,
+      type: event.type,
       success: result
     })
 }
@@ -199,7 +203,7 @@ async function getChannelTask (mObj) {
 
 // return all channel's messages
 // if channel is not exist, return type 'get_channel_messages_not_exist'
-async function getChannelMessages (channelName, fromTime) { // TODO: проверить, сущ ли канал
+async function getChannelMessages (channelName, fromTime) {
   let ch = await db.collection(channelName + '_messages')
   let list
   // load all
@@ -260,16 +264,18 @@ function isUserExists (user) {
 
 async function registerUser (user, email, password, callback) {
   if (await isUserExists(user)) {
+    log('user already exists')
     callback(false)
   } else {
-    let err = await userListDB.insertOne(
+    let result = await userListDB.insertOne(
       {login: user, email: email, password: password}, {w: 1})
-    if (err) {
-      log('inserting user err: ' + err)
-      callback(false)
-    } else {
+    if (result) {
+      log('inserting user result '+ result)
       db.createCollection(user + '_channels')
       callback(true)
+    } else {
+      log('inserting user err: ' + err)
+      callback(false)
     }
   }
 }
@@ -351,7 +357,7 @@ wss.on('connection', function (ws) {
       lpeers.exterminate(login)
       log('closed for ' + login + ', online now: ' + '[' + lpeers + ']')
     } else {
-      log('disconnected')
+      log('disconnected unauthorized')
     }
     log('connection count: ' + connectionCount)
   })

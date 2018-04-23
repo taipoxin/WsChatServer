@@ -17,6 +17,6 @@
   },
   "scripts": {
     "start": "node app.js",
-    "test": "./node_modules/.bin/mocha --reporter spec --timeout 300000"
+    "test": "./node_modules/.bin/mocha --reporter spec --timeout 10000"
   }
 }
