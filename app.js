@@ -32,7 +32,7 @@ let db
 let lpeers = [] // logins
 let peers = []  // connection objects
 
-MongoClient.connect('mongodb://' + mongodbURL, function (err, dbController) {
+MongoClient.connect('mongodb://' + mongodbURL, {uri_decode_auth: true}, function (err, dbController) {
   if (err) {
     log('Error while connecting mongodb: ' + err)
     throw err
