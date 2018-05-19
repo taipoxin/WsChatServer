@@ -6,7 +6,7 @@ let mongodbHost = process.env.OPENSHIFT_MONGODB_HOSTNAME || config.hostname
 let mongodbPort = process.env.OPENSHIFT_MONGODB_PORT || config.mongodb_port
 let wsHost = process.env.OPENSHIFT_HOSTNAME || config.hostname
 let wsPort = process.env.OPENSHIFT_WS_PORT || config.ws_port 
-let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || (wsHost + ':' + wsPort)
+let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || config.mongodb_string
 
 const WebSocketServer = require('ws').Server
 const wss = new WebSocketServer({host: wsHost, port: wsPort})
