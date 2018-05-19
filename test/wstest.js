@@ -5,6 +5,10 @@ const chai = require('chai')
 const WebSocket = require('ws')
 let it = mocha.it
 
+// ERR_CERT_AUTHORITY_INVALID fix
+require('https').globalAgent.options.rejectUnauthorized = false
+// process.env.NODE_TLS_REJECT_UNAUTHORIZED = 0
+
 let expect = chai.expect
 
 function logTest () {
@@ -56,8 +60,11 @@ describe('ws tests', () => {
       name = 'client0'
     }
 
-    let ws_source = 'ws://' + config.hostname + ':' + config.ws_port
-    let client = new WebSocket(ws_source)
+
+    let ws_source = 'wss://' + config.hostname + ':' + config.ws_port
+    //onsole.log(ws_source)
+    let client = new WebSocket(ws_source, {origin: 'https://' + config.hostname + ':' + config.ws_port})
+    //console.log(client)
 
     client.onclose = (e) => { console.log('connection closed') }
     client.onerror = (e) => { console.log('connection aborted') }

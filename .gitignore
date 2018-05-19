@@ -6,3 +6,4 @@ testlog.txt
 log.txt
 errors.txt
 .idea/
+test/fixtures/

@@ -1,6 +1,7 @@
 'use strict'
 // server config params
 const config = require('./config')
+const log = require('./logging')
 
 let mongodbHost = process.env.OPENSHIFT_MONGODB_HOSTNAME || config.hostname
 let mongodbPort = process.env.OPENSHIFT_MONGODB_PORT || config.mongodb_port
@@ -8,11 +9,45 @@ let wsHost = process.env.OPENSHIFT_HOSTNAME || config.hostname
 let wsPort = process.env.OPENSHIFT_WS_PORT || config.ws_port 
 let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || config.mongodb_string
 
-const WebSocketServer = require('ws').Server
-const wss = new WebSocketServer({host: wsHost, port: wsPort})
+const WebSocket = require('ws')
+const fs = require('fs')
+const https = require('https')
+var express = require('express')
+
+var privateKey  = fs.readFileSync('test/fixtures/key.pem', 'utf8')
+var certificate = fs.readFileSync('test/fixtures/certificate.pem', 'utf8')
+
+var credentials = {
+  key: privateKey, 
+  cert: certificate, 
+  passphrase: config.passphrase,
+  requestCert: true,
+  rejectUnauthorized: false
+}
+
+var app = express()
+
+//... bunch of other express stuff here ...
+
+//pass in your express app and credentials to create an https server
+var httpsServer = https.createServer(credentials, app)
+httpsServer.listen(wsPort)
+
+// https://localhost:443
+// wss://localhost:443
+log('https server started on ' + wsPort + ' port')
+
+
+
+const wss = new WebSocket.Server({server:  httpsServer })
+//log(wss)
+
+
 const MongoClient = require('mongodb').MongoClient
-const log = require('./logging')
+
 const utils = require('./utils')
+
+
 
 // collection links
 
@@ -364,7 +399,13 @@ wss.on('connection', function (ws) {
 
 	// on any request
   ws.on('message', function (message) {
-    let event = JSON.parse(message)
+    let event = {}
+
+    try {
+        event = JSON.parse(message)
+    } catch(e) {
+        log('bad message: ' + e) // error in the above string
+    }
 
     if (event.type === 'register') {
     	log('register type')
@@ -453,6 +494,9 @@ wss.on('connection', function (ws) {
             getChannelUsersTask(event)
             break
         }
+      }
+      else {
+        log('invalid message: ' + message)
       }
     }
   })
