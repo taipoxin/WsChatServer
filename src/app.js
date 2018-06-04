@@ -1,21 +1,19 @@
-'use strict'
+﻿'use strict'
 // server config params
 const config = require('./config')
 const log = require('./logging')
 
-let mongodbHost = process.env.OPENSHIFT_MONGODB_HOSTNAME || config.hostname
-let mongodbPort = process.env.OPENSHIFT_MONGODB_PORT || config.mongodb_port
-let wsHost = process.env.OPENSHIFT_HOSTNAME || config.hostname
-let wsPort = process.env.OPENSHIFT_WS_PORT || config.ws_port 
-let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || config.mongodb_string
+
+let wsPort = process.env.REMOTE_WS_PORT || config.ws_port 
+let mongodbURL = process.env.REMOTE_MONGODB_URL || config.mongodb_string
 
 const WebSocket = require('ws')
 const fs = require('fs')
 const https = require('https')
 var express = require('express')
 
-var privateKey  = fs.readFileSync('test/fixtures/key.pem', 'utf8')
-var certificate = fs.readFileSync('test/fixtures/certificate.pem', 'utf8')
+var privateKey  = fs.readFileSync('./key.pem', 'utf8')
+var certificate = fs.readFileSync('./certificate.pem', 'utf8')
 
 var credentials = {
   key: privateKey, 
@@ -33,8 +31,7 @@ var app = express()
 var httpsServer = https.createServer(credentials, app)
 httpsServer.listen(wsPort)
 
-// https://localhost:443
-// wss://localhost:443
+
 log('https server started on ' + wsPort + ' port')
 
 

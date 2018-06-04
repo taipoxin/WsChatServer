@@ -1,2 +1,2 @@
 @echo off
-mongod --dbpath database_test --smallfiles
+mongod --dbpath node_modules/database_test --smallfiles

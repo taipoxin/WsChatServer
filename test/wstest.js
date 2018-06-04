@@ -1,5 +1,5 @@
-'use strict'
-const config = require('../config')
+﻿'use strict'
+const config = require('../src/config')
 const mocha = require('mocha')
 const chai = require('chai')
 const WebSocket = require('ws')
@@ -63,7 +63,7 @@ describe('ws tests', () => {
 
     let ws_source = 'wss://' + config.hostname + ':' + config.ws_port
     //onsole.log(ws_source)
-    let client = new WebSocket(ws_source, {origin: 'https://' + config.hostname + ':' + config.ws_port})
+    let client = new WebSocket(ws_source, {origin: 'wss://' + config.hostname + ':' + config.ws_port})
     //console.log(client)
 
     client.onclose = (e) => { console.log('connection closed') }
