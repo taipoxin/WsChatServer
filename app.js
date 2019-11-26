@@ -8,6 +8,10 @@ let wsHost = process.env.OPENSHIFT_HOSTNAME || config.hostname
 let wsPort = process.env.OPENSHIFT_WS_PORT || config.ws_port 
 let mongodbURL = process.env.OPENSHIFT_MONGODB_URL || config.mongodb_string
 
+var base64js = require('base64-js')
+const encoding = require('text-encoding'); // polyfill
+const win1251decoder = new encoding.TextDecoder('windows-1251');
+
 const WebSocketServer = require('ws').Server
 const wss = new WebSocketServer({host: wsHost, port: wsPort})
 const MongoClient = require('mongodb').MongoClient
@@ -363,7 +367,13 @@ wss.on('connection', function (ws) {
   })
 
 	// on any request
-  ws.on('message', function (message) {
+  ws.on('message', function (messageBase64) {
+
+	log(messageBase64.toString())
+	let message1251 = base64js.toByteArray(messageBase64.toString())
+	let message = win1251decoder.decode(message1251);
+	log(message)
+	
     let event = JSON.parse(message)
 
     if (event.type === 'register') {
